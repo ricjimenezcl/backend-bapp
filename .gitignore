@@ -14,6 +14,9 @@ dist/
 build/
 .eggs/
 
+# Entorno virtual Python
+venv311/
+
 # Virtual environments
 venv/
 .venv/
