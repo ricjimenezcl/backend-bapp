@@ -1,0 +1,127 @@
+from pydantic import BaseModel, EmailStr, validator, ConfigDict
+from datetime import datetime
+from typing import Optional
+import re
+
+class UserBase(BaseModel):
+    email: EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    role: str
+
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
+
+    @validator('role')
+    def validate_role(cls, v):
+        v_upper = v.upper()
+        valid_roles = {"CLIENT", "PROVIDER", "ADMIN"}
+        if v_upper not in valid_roles:
+            raise ValueError(f'Role must be one of: {", ".join(valid_roles)}')
+        return v_upper
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+    status: str
+    created_at: datetime
+    has_premium: bool = False
+    premium_expires_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# En app/schemas/user.py
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user_id: int
+    role: str
+    email: str
+    
+    # Campos específicos según el rol
+    provider_id: Optional[int] = None
+    client_id: Optional[int] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+class ClientRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    phone: Optional[str] = None
+
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not re.search(r'\d', v):
+            raise ValueError('Password must contain at least one number')
+        return v
+
+    @validator('phone')
+    def validate_phone(cls, v):
+        if v and not re.match(r'^(\+56|56)?\s?9\s?\d{4}\s?\d{4}$', v.replace(' ', '')):
+            raise ValueError('Invalid Chilean phone number format')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "cliente@example.com",
+                "password": "Password123",
+                "full_name": "Juan Pérez",
+                "phone": "+56912345678"
+            }
+        }
+    )
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
+
+    @validator('phone')
+    def validate_phone(cls, v):
+        if v and not re.match(r'^(\+56|56)?\s?9\s?\d{4}\s?\d{4}$', v.replace(' ', '')):
+            raise ValueError('Invalid Chilean phone number format')
+        return v
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "full_name": "Juan Pérez Updated",
+                "phone": "+56912345678",
+                "avatar": "base64string..."
+            }
+        }
+    )
+
+class UserProfileResponse(BaseModel):
+    id: int
+    user_id: int
+    full_name: str
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
+    # Bio excluida intencionalmente para clientes
+    rating_avg: int
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class UserDetailResponse(UserResponse):
+    profile: Optional[UserProfileResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)

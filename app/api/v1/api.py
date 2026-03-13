@@ -1,0 +1,26 @@
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.v1.endpoints import auth, providers, payments, categories, users, notifications, reviews, chat, test, working_hours, clients, premium, products, payments_verify, transactions
+from app.modules.documents import router as documents_router
+from app.modules.bookings import router as bookings_router
+
+
+api_router = APIRouter()
+
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(providers.router, prefix="/providers", tags=["providers"])
+api_router.include_router(bookings_router)  # Ya incluye /api/v1/bookings en el router
+api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
+api_router.include_router(payments_verify.router, prefix="/payments", tags=["payment-verification"])
+api_router.include_router(categories.router, prefix="/categories", tags=["categories"])
+api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
+api_router.include_router(working_hours.router, prefix="/working-hours", tags=["working-hours"])
+api_router.include_router(premium.router, prefix="/premium", tags=["premium"])
+api_router.include_router(products.router, prefix="/products", tags=["products"])
+api_router.include_router(transactions.router, prefix="/transactions", tags=["transactions"])
+api_router.include_router(documents_router, tags=["documents"])
+api_router.include_router(clients.router, prefix="/clients", tags=["clients"])
+api_router.include_router(test.router, tags=["test"])  # Test endpoints for development
+# api_router.include_router(admin.router, prefix="/admin", tags=["admin"])  # Comentado temporalmente
