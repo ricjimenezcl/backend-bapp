@@ -1,9 +1,10 @@
 """
-Email Service - Sends emails via Resend API
+Email Service - Sends emails via Amazon SES
 Handles booking notifications, confirmations, and transactional emails
 """
 
 import logging
+import asyncio
 from typing import Optional
 from app.core.config import settings
 
@@ -12,24 +13,54 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     """
-    Email service using Resend API for transactional emails
+    Email service using Amazon SES for transactional emails
     """
 
     def __init__(self):
-        """Initialize Resend client"""
+        """Initialize SES client"""
         try:
-            from resend import Resend
-            self.client = Resend(api_key=settings.RESEND_API_KEY)
-            self.from_email = settings.RESEND_FROM_EMAIL
-            logger.info("✅ Resend email client initialized")
+            import boto3
+            self._ses = boto3.client(
+                "ses",
+                region_name=settings.AWS_REGION,
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            )
+            self.from_email = settings.SES_FROM_EMAIL
+            logger.info("✅ Amazon SES email client initialized")
         except Exception as e:
-            logger.error(f"⚠️ Resend initialization failed: {str(e)}")
-            self.client = None
+            logger.error(f"⚠️ SES initialization failed: {str(e)}")
+            self._ses = None
+
+    def _send_raw(self, to: str, subject: str, html: str) -> bool:
+        """Blocking SES send — run via executor to avoid blocking event loop"""
+        self._ses.send_email(
+            Source=self.from_email,
+            Destination={"ToAddresses": [to]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {"Html": {"Data": html, "Charset": "UTF-8"}},
+            },
+        )
+        return True
+
+    async def _send(self, to: str, subject: str, html: str) -> bool:
+        """Send email asynchronously using thread executor"""
+        if not self._ses:
+            logger.warning("⚠️ SES client not initialized, skipping email")
+            return False
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._send_raw, to, subject, html)
+            return True
+        except Exception as e:
+            logger.error(f"❌ SES send failed to {to}: {str(e)}")
+            return False
 
     def _build_html_template(self, template_name: str, context: dict) -> str:
         """Build HTML email template with context"""
         from jinja2 import Template
-        
+
         templates = {
             "booking_created": """
                 <html>
@@ -159,12 +190,12 @@ class EmailService:
                 </html>
             """
         }
-        
+
         template_html = templates.get(template_name, "")
         if not template_html:
             logger.error(f"⚠️ Template not found: {template_name}")
             return ""
-        
+
         template = Template(template_html)
         return template.render(**context)
 
@@ -181,38 +212,27 @@ class EmailService:
         action_link: str
     ) -> bool:
         """Send email to provider when booking is created"""
-        try:
-            if not self.client:
-                logger.warning("⚠️ Resend client not initialized, skipping email")
-                return False
-
-            html_body = self._build_html_template(
-                "booking_created",
-                {
-                    "provider_name": provider_name,
-                    "client_name": client_name,
-                    "service_type": service_type,
-                    "booking_date": booking_date,
-                    "location": location,
-                    "description": description,
-                    "budget": budget,
-                    "action_link": action_link
-                }
-            )
-
-            response = self.client.emails.send({
-                "from": self.from_email,
-                "to": provider_email,
-                "subject": f"🔔 Nueva Solicitud de Servicio de {client_name}",
-                "html": html_body,
-            })
-
+        html_body = self._build_html_template(
+            "booking_created",
+            {
+                "provider_name": provider_name,
+                "client_name": client_name,
+                "service_type": service_type,
+                "booking_date": booking_date,
+                "location": location,
+                "description": description,
+                "budget": budget,
+                "action_link": action_link,
+            },
+        )
+        result = await self._send(
+            provider_email,
+            f"🔔 Nueva Solicitud de Servicio de {client_name}",
+            html_body,
+        )
+        if result:
             logger.info(f"✅ Booking created email sent to {provider_email}")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Failed to send booking created email: {str(e)}")
-            return False
+        return result
 
     async def send_booking_accepted_email(
         self,
@@ -223,34 +243,23 @@ class EmailService:
         chat_link: str
     ) -> bool:
         """Send email to client when booking is accepted"""
-        try:
-            if not self.client:
-                logger.warning("⚠️ Resend client not initialized, skipping email")
-                return False
-
-            html_body = self._build_html_template(
-                "booking_accepted",
-                {
-                    "client_name": client_name,
-                    "provider_name": provider_name,
-                    "provider_rating": provider_rating,
-                    "chat_link": chat_link
-                }
-            )
-
-            response = self.client.emails.send({
-                "from": self.from_email,
-                "to": client_email,
-                "subject": f"✅ {provider_name} Confirmó Tu Reserva",
-                "html": html_body,
-            })
-
+        html_body = self._build_html_template(
+            "booking_accepted",
+            {
+                "client_name": client_name,
+                "provider_name": provider_name,
+                "provider_rating": provider_rating,
+                "chat_link": chat_link,
+            },
+        )
+        result = await self._send(
+            client_email,
+            f"✅ {provider_name} Confirmó Tu Reserva",
+            html_body,
+        )
+        if result:
             logger.info(f"✅ Booking accepted email sent to {client_email}")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Failed to send booking accepted email: {str(e)}")
-            return False
+        return result
 
     async def send_booking_rejected_email(
         self,
@@ -260,33 +269,22 @@ class EmailService:
         search_link: str
     ) -> bool:
         """Send email to client when booking is rejected"""
-        try:
-            if not self.client:
-                logger.warning("⚠️ Resend client not initialized, skipping email")
-                return False
-
-            html_body = self._build_html_template(
-                "booking_rejected",
-                {
-                    "client_name": client_name,
-                    "provider_name": provider_name,
-                    "search_link": search_link
-                }
-            )
-
-            response = self.client.emails.send({
-                "from": self.from_email,
-                "to": client_email,
-                "subject": f"📢 Actualización Sobre Tu Reserva",
-                "html": html_body,
-            })
-
+        html_body = self._build_html_template(
+            "booking_rejected",
+            {
+                "client_name": client_name,
+                "provider_name": provider_name,
+                "search_link": search_link,
+            },
+        )
+        result = await self._send(
+            client_email,
+            "📢 Actualización Sobre Tu Reserva",
+            html_body,
+        )
+        if result:
             logger.info(f"✅ Booking rejected email sent to {client_email}")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Failed to send booking rejected email: {str(e)}")
-            return False
+        return result
 
 
 # Singleton instance

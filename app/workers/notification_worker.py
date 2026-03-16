@@ -1,7 +1,7 @@
 # app/workers/notification_worker.py
 """
 Notification Worker - Sends push notifications, emails, SMS
-Handles all notification delivery via Firebase, Resend, Twilio
+Handles all notification delivery via Firebase, Amazon SES, Twilio
 """
 
 import logging
@@ -53,17 +53,9 @@ class NotificationWorker(BaseWorker):
             html_body = payload.get("html_body")
             
             logger.info(f"📧 Sending email to {to_email}: {subject}")
-            
-            # TODO: Implement Resend API integration
-            # from resend import Resend
-            # client = Resend(api_key=settings.RESEND_API_KEY)
-            # response = client.emails.send({
-            #     "from": "noreply@servicefinder.com",
-            #     "to": to_email,
-            #     "subject": subject,
-            #     "html": html_body or body,
-            # })
-            
+            from app.services.email_service import get_email_service
+            svc = get_email_service()
+            await svc._send(to_email, subject, html_body or body or "")
             logger.info(f"✅ Email sent to {to_email}")
             return True
         

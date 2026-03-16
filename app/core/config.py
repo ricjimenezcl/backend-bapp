@@ -51,9 +51,8 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: Optional[str] = Field(default=None)
     TWILIO_WHATSAPP_NUMBER: Optional[str] = Field(default=None)
 
-    # Resend Email Service
-    RESEND_API_KEY: Optional[str] = Field(default=None)
-    RESEND_FROM_EMAIL: str = Field(default="noreply@bappsearch.com")
+    # Amazon SES Email Service
+    SES_FROM_EMAIL: str = Field(default="noreply@bappsearch.com")
     
     # AWS Rekognition - Face verification
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
