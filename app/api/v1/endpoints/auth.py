@@ -338,6 +338,66 @@ async def facebook_oauth(
     oauth_service = OAuthService(db)
     return await oauth_service.login_with_facebook(body.access_token, role=body.role)
 
+class SendVerificationEmailRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/send-verification-email")
+async def send_verification_email(
+    body: SendVerificationEmailRequest,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Envía (o reenvía) el email de verificación al usuario registrado."""
+    from app.services.email_service import get_email_service
+
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    if user and not user.email_verified:
+        token = secrets.token_urlsafe(32)
+        user.email_verification_token = token
+        user.email_verification_expiration = datetime.now() + timedelta(hours=24)
+        await db.commit()
+
+        verification_link = (
+            f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+        )
+        try:
+            email_svc = get_email_service()
+            user_name = body.email.split("@")[0]
+            await email_svc.send_verification_email(body.email, user_name, verification_link)
+        except Exception as exc:
+            logger.warning(f"Verification email send failed (non-critical): {exc}")
+
+    # Respuesta genérica — no revelar si el correo existe
+    return {"message": "Si la cuenta existe y no está verificada, recibirás un correo de verificación."}
+
+
+@router.get("/verify-email")
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Verifica el email del usuario usando el token recibido por correo."""
+    result = await db.execute(
+        select(User).where(User.email_verification_token == token)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user or not user.email_verification_expiration:
+        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+
+    if user.email_verification_expiration < datetime.now():
+        raise HTTPException(status_code=400, detail="El enlace de verificación ha expirado. Solicita uno nuevo.")
+
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_expiration = None
+    await db.commit()
+
+    return {"message": "Correo verificado correctamente. Ya puedes iniciar sesión."}
+
+
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(
     current_user: UserResponse = Depends(get_current_active_user)

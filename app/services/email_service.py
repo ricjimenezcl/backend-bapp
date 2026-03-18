@@ -149,6 +149,39 @@ class EmailService:
                 </body>
                 </html>
             """,
+            "email_verification": """
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: #007AFF; color: white; padding: 30px 20px; border-radius: 8px 8px 0 0; text-align: center; }
+                        .content { background: #f9f9f9; padding: 30px 20px; border-radius: 0 0 8px 8px; }
+                        .button { background: #007AFF; color: white !important; padding: 14px 32px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 20px; font-weight: bold; font-size: 16px; }
+                        .footer { margin-top: 20px; font-size: 12px; color: #666; text-align: center; }
+                        .note { font-size: 13px; color: #888; margin-top: 16px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h2>Verifica tu correo electrónico</h2>
+                        </div>
+                        <div class="content">
+                            <p>Hola {{ user_name }},</p>
+                            <p>Gracias por registrarte en <strong>BAPP Search</strong>. Para activar tu cuenta, haz clic en el botón de abajo:</p>
+                            <div style="text-align: center;">
+                                <a href="{{ verification_link }}" class="button">Verificar mi cuenta</a>
+                            </div>
+                            <p class="note">Este enlace expira en 24 horas. Si no creaste esta cuenta, puedes ignorar este correo.</p>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; 2026 BAPP Search. Todos los derechos reservados.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            """,
             "booking_rejected": """
                 <html>
                 <head>
@@ -198,6 +231,29 @@ class EmailService:
 
         template = Template(template_html)
         return template.render(**context)
+
+    async def send_verification_email(
+        self,
+        user_email: str,
+        user_name: str,
+        verification_link: str,
+    ) -> bool:
+        """Send email verification link after registration"""
+        html_body = self._build_html_template(
+            "email_verification",
+            {
+                "user_name": user_name,
+                "verification_link": verification_link,
+            },
+        )
+        result = await self._send(
+            user_email,
+            "Verifica tu cuenta en BAPP Search",
+            html_body,
+        )
+        if result:
+            logger.info(f"✅ Verification email sent to {user_email}")
+        return result
 
     async def send_booking_created_email(
         self,

@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: Optional[str] = Field(default=None)
     TWILIO_WHATSAPP_NUMBER: Optional[str] = Field(default=None)
 
+    # Frontend URL (para links en emails)
+    FRONTEND_URL: str = Field(default="http://localhost:8100")
+
     # Amazon SES Email Service
     SES_FROM_EMAIL: str = Field(default="noreply@bappsearch.com")
     

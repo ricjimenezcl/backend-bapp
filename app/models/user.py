@@ -20,6 +20,10 @@ class User(Base):
     reset_token = Column(String(128), nullable=True)
     reset_token_expiration = Column(DateTime, nullable=True)
 
+    # Verificación de email
+    email_verification_token = Column(String(128), nullable=True)
+    email_verification_expiration = Column(DateTime, nullable=True)
+
     # OAuth social login
     oauth_provider = Column(String(20), nullable=True)    # 'google' | 'facebook' | None
     oauth_id = Column(String(255), nullable=True)         # ID único del proveedor OAuth

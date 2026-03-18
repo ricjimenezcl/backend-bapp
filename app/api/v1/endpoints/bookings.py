@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, and_
 from typing import List
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 import logging
 
 from app.core.database import get_db_async
@@ -489,6 +489,108 @@ async def complete_booking(
     except Exception as e:
         logger.warning(f"[SII] Error preparando dispatch de boleta (non-critical): {e}")
 
+    return result
+
+
+@router.get("/available-slots")
+async def get_available_slots(
+    provider_id: int = Query(..., description="ID del proveedor"),
+    date_str: str = Query(..., alias="date", description="Fecha en formato YYYY-MM-DD"),
+    slot_duration: int = Query(60, description="Duración del slot en minutos (default 60)"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """
+    Retorna los slots de tiempo disponibles para un proveedor en una fecha dada.
+
+    Algoritmo:
+      1. Obtiene el horario laboral del proveedor para ese día de la semana.
+      2. Genera slots de `slot_duration` minutos dentro del horario.
+      3. Resta los slots ya ocupados por reservas PENDING/CONFIRMED/IN_PROGRESS.
+    """
+    # Validar fecha
+    try:
+        query_date = date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usa YYYY-MM-DD.")
+
+    if query_date < date.today():
+        raise HTTPException(status_code=400, detail="No se pueden consultar slots para fechas pasadas.")
+
+    # Cache
+    cache_key = f"slots:{provider_id}:{date_str}:{slot_duration}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    # 1. Horario laboral del proveedor para ese día (0=Lunes … 6=Domingo)
+    day_of_week = query_date.weekday()
+    hours_result = await db.execute(
+        select(ProviderWorkingHours).where(
+            and_(
+                ProviderWorkingHours.provider_id == provider_id,
+                ProviderWorkingHours.day_of_week == day_of_week,
+                ProviderWorkingHours.is_active == True,
+            )
+        )
+    )
+    working_hours = hours_result.scalar_one_or_none()
+
+    if working_hours is None:
+        result = {"date": date_str, "provider_id": provider_id, "slots": [], "reason": "El proveedor no trabaja ese día."}
+        cache_set(cache_key, result, ttl=300)
+        return result
+
+    # 2. Generar todos los slots del día
+    def time_to_minutes(t: time) -> int:
+        return t.hour * 60 + t.minute
+
+    def minutes_to_time_str(minutes: int) -> str:
+        return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+    start_min = time_to_minutes(working_hours.start_time)
+    end_min = time_to_minutes(working_hours.end_time)
+    all_slots: list[str] = []
+    current_min = start_min
+    while current_min + slot_duration <= end_min:
+        all_slots.append(minutes_to_time_str(current_min))
+        current_min += slot_duration
+
+    # 3. Reservas ya ocupadas ese día para ese proveedor
+    bookings_result = await db.execute(
+        select(Booking).where(
+            and_(
+                Booking.provider_id == provider_id,
+                Booking.scheduled_date == query_date,
+                Booking.status.in_(["PENDING", "CONFIRMED", "IN_PROGRESS"]),
+            )
+        )
+    )
+    occupied_bookings = bookings_result.scalars().all()
+
+    occupied_start_minutes: set[int] = set()
+    for b in occupied_bookings:
+        if b.scheduled_time:
+            occupied_start_minutes.add(time_to_minutes(b.scheduled_time))
+            # Marcar todos los slots que caen dentro de la duración de la reserva
+            duration_min = b.duration or slot_duration
+            for offset in range(0, duration_min, slot_duration):
+                occupied_start_minutes.add(time_to_minutes(b.scheduled_time) + offset)
+
+    available_slots = [s for s in all_slots if int(s.split(":")[0]) * 60 + int(s.split(":")[1]) not in occupied_start_minutes]
+
+    result = {
+        "date": date_str,
+        "provider_id": provider_id,
+        "working_hours": {
+            "start": working_hours.start_time.strftime("%H:%M"),
+            "end": working_hours.end_time.strftime("%H:%M"),
+        },
+        "slot_duration_minutes": slot_duration,
+        "slots": available_slots,
+        "total_available": len(available_slots),
+    }
+    cache_set(cache_key, result, ttl=60)
     return result
 
 
