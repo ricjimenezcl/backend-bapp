@@ -53,16 +53,86 @@ class TransbankValidator:
         self.base_url = self.INTEGRATION_URL if use_integration else self.PRODUCTION_URL
         self.environment = "integration" if use_integration else "production"
     
+    async def commit_transaction(
+        self,
+        token: str
+    ) -> Dict[str, Any]:
+        """
+        Commit (capture) a Webpay Plus transaction — OBLIGATORIO después del redirect.
+
+        Webpay Plus exige un PUT al endpoint de transacciones dentro de los 30 segundos
+        posteriores a que el usuario es redirigido de vuelta al sitio. Sin este paso,
+        Transbank revierte la transacción automáticamente y el dinero NO se captura.
+
+        Args:
+            token: token_ws recibido en la URL de retorno
+
+        Returns:
+            Dict con el resultado del commit (misma estructura que _parse_response)
+        """
+        try:
+            url = f"{self.base_url}/rswebpaytransaction/api/webpay/v1.2/transactions/{token}"
+
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Tbk-Api-Key-Id": self.commerce_code,
+                    "Tbk-Api-Key-Secret": self.api_key,
+                    "Content-Type": "application/json"
+                }
+
+                # PUT sin body — Transbank captura la transacción y devuelve el resultado
+                async with session.put(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return self._parse_response(data)
+
+                    elif response.status == 422:
+                        # Transacción ya fue commiteada anteriormente (idempotencia)
+                        return {
+                            "valid": False,
+                            "already_committed": True,
+                            "error": "Transaction already committed"
+                        }
+
+                    elif response.status == 404:
+                        return {
+                            "valid": False,
+                            "error": "Transaction not found or expired"
+                        }
+
+                    elif response.status == 401:
+                        return {
+                            "valid": False,
+                            "error": "Invalid credentials"
+                        }
+
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "valid": False,
+                            "error": f"Commit error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            return {
+                "valid": False,
+                "error": f"Commit failed: {str(e)}"
+            }
+
     async def verify_transaction(
         self,
         token: str
     ) -> Dict[str, Any]:
         """
-        Verify a Webpay Plus transaction
-        
+        Consulta el estado de una transacción ya commiteada (GET).
+
+        IMPORTANTE: este método es para consultar el estado DESPUÉS de haber
+        llamado commit_transaction(). Para el flujo normal de callback usar
+        commit_transaction() directamente.
+
         Args:
             token: Transaction token from Transbank
-            
+
         Returns:
             Dict with verification result:
             {
@@ -77,38 +147,38 @@ class TransbankValidator:
         """
         try:
             url = f"{self.base_url}/rswebpaytransaction/api/webpay/v1.2/transactions/{token}"
-            
+
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Tbk-Api-Key-Id": self.commerce_code,
                     "Tbk-Api-Key-Secret": self.api_key,
                     "Content-Type": "application/json"
                 }
-                
+
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
                         return self._parse_response(data)
-                    
+
                     elif response.status == 404:
                         return {
                             "valid": False,
                             "error": "Transaction not found"
                         }
-                    
+
                     elif response.status == 401:
                         return {
                             "valid": False,
                             "error": "Invalid credentials"
                         }
-                    
+
                     else:
                         error_text = await response.text()
                         return {
                             "valid": False,
                             "error": f"API error {response.status}: {error_text}"
                         }
-        
+
         except Exception as e:
             return {
                 "valid": False,

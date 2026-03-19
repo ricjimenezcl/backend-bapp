@@ -29,10 +29,24 @@ class Settings(BaseSettings):
     OAUTH_GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
     OAUTH_GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
 
+    # Entorno de ejecución — controla endpoints de testing y modo sandbox
+    # Valores: "development" | "staging" | "production"
+    ENVIRONMENT: str = Field(default="production")
+
     # External APIs (optional for development)
     GEOAPIFY_API_KEY: Optional[str] = Field(default=None)
     MERCADO_PAGO_ACCESS_TOKEN: Optional[str] = Field(default=None)
+    # Transbank Webpay Plus — ambas credenciales requeridas para producción
+    TRANSBANK_COMMERCE_CODE: Optional[str] = Field(default=None)
     TRANSBANK_API_KEY: Optional[str] = Field(default=None)
+    TRANSBANK_USE_INTEGRATION: bool = Field(default=True)
+    # Apple IAP
+    APPLE_IAP_SHARED_SECRET: Optional[str] = Field(default=None)
+    APPLE_IAP_USE_SANDBOX: bool = Field(default=True)
+    APPLE_IAP_BUNDLE_ID: str = Field(default="io.ionic.bappsearch")
+    # Google Play
+    GOOGLE_PLAY_PACKAGE_NAME: str = Field(default="io.ionic.bappsearch")
+    GOOGLE_PLAY_SERVICE_ACCOUNT_FILE: Optional[str] = Field(default=None)
     SII_API_KEY: Optional[str] = Field(default=None)
     SII_SECRET_KEY: Optional[str] = Field(default=None)
 

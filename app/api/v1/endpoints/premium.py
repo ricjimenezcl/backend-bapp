@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_async
+from app.core.config import settings
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.services.premium_service import PremiumService
@@ -20,11 +21,14 @@ async def activate_premium(
     db: AsyncSession = Depends(get_db_async)
 ):
     """
-    Activa acceso premium por 7 días
-    
-    TODO: Integrar con sistema de pagos (Stripe, PayPal, etc.)
-    Por ahora activa premium directamente para testing
+    Activa acceso premium por 7 días — SOLO para entornos no productivos.
+    En producción usar POST /payments/transbank/create o /payments/verify/*
     """
+    if settings.ENVIRONMENT != "development":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este endpoint solo está disponible en entorno de desarrollo"
+        )
     premium_service = PremiumService(db)
     result = await premium_service.activate_premium(current_user.id)
     return result

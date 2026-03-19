@@ -69,6 +69,9 @@ google-auth==2.23.0
 google-api-python-client==2.108.0
 requests==2.31.0
 
+# Payment Integration (Mercado Pago)
+mercadopago==2.2.1
+
 # Geoespacial — PostGIS (Fase 3)
 # Requerido cuando USE_POSTGIS=True en config
 geoalchemy2==0.14.3

@@ -169,15 +169,27 @@ class TransactionService:
         
         if not transaction or transaction.status != TransactionStatus.PENDING:
             return None
-        
-        # Get product to determine duration
+
+        # Get product to determine duration and validate amount
         product = db.query(Product).filter(
             Product.id == transaction.product_id
         ).first()
-        
+
         if not product:
             return None
-        
+
+        # Validar que el monto pagado no sea inferior al precio del catálogo.
+        # Tolerancia de 1 CLP/centavo para evitar falsos rechazos por redondeo.
+        expected_amount = product.price_clp if transaction.currency == "CLP" else product.price_usd
+        if transaction.amount < (expected_amount - 1):
+            # Marcar como fallida y no activar el beneficio
+            transaction.status = TransactionStatus.FAILED
+            transaction.validation_response = (
+                f"Amount mismatch: paid={transaction.amount}, expected={expected_amount}"
+            )
+            db.commit()
+            return None
+
         # Calculate expiration
         activated_at = datetime.utcnow()
         expires_at = activated_at + timedelta(days=product.duration_days)
