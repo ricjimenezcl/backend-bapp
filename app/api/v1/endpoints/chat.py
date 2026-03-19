@@ -121,28 +121,46 @@ async def get_or_create_conversation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_async)
 ):
-    """Get existing conversation or create a new one (⚠️ PREMIUM ACCESS PROTECTED)"""
+    """Get existing conversation or create a new one (⚠️ PREMIUM ACCESS PROTECTED for new conversations)"""
     try:
-        # Validar acceso premium si es cliente
-        if current_user.role == "CLIENT":
-            premium_service = PremiumService(db)
-            await premium_service.validate_provider_access(
-                client_id=current_user.id,
-                provider_id=provider_id
-            )
-        
-        # ✅ OPCIÓN B: Validate that provider_id exists in providers table (not users)
+        # Validate that provider_id exists in providers table
         provider_result = await db.execute(
             select(Provider).where(Provider.id == provider_id)
         )
         provider = provider_result.scalars().first()
-        
+
         if not provider:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Proveedor con ID {provider_id} no encontrado"
             )
-        
+
+        # Check if conversation already exists — if yes, skip premium check
+        from app.models.chat import ChatConversation
+        from sqlalchemy import and_
+        existing = await db.execute(
+            select(ChatConversation).where(
+                and_(
+                    ChatConversation.client_id == current_user.id,
+                    ChatConversation.provider_id == provider_id,
+                )
+            )
+        )
+        conversation_exists = existing.scalar_one_or_none() is not None
+
+        # Only validate premium when creating a NEW conversation
+        if not conversation_exists and current_user.role == "CLIENT":
+            premium_service = PremiumService(db)
+            try:
+                await premium_service.validate_provider_access(
+                    client_id=current_user.id,
+                    provider_id=provider_id
+                )
+            except HTTPException as pe:
+                # Fail-open when location is unavailable (400) — block only explicit PREMIUM_REQUIRED (403)
+                if pe.status_code == status.HTTP_403_FORBIDDEN:
+                    raise
+
         service = ChatService(db)
         conversation = await service.get_or_create_conversation(
             client_id=current_user.id,
