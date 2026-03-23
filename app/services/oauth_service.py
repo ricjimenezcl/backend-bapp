@@ -205,6 +205,7 @@ class OAuthService:
             "email": user.email,
             "name": full_name,
             "avatar_url": avatar_url or user.oauth_avatar_url,
+            "terms_accepted": user.terms_accepted,
         }
 
     async def _find_user_by_oauth(self, provider: str, oauth_id: str) -> Optional[User]:
@@ -257,6 +258,8 @@ class OAuthService:
             oauth_provider=oauth_provider,
             oauth_id=oauth_id,
             oauth_avatar_url=avatar_url,
+            terms_accepted=False,  # debe aceptar T&C en el primer acceso
+            email_opt_in=False,
         )
         self.db.add(new_user)
         await self.db.flush()  # obtener id antes del commit

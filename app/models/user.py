@@ -29,6 +29,11 @@ class User(Base):
     oauth_id = Column(String(255), nullable=True)         # ID único del proveedor OAuth
     oauth_avatar_url = Column(String(500), nullable=True) # URL foto de perfil OAuth
 
+    # Legal compliance
+    terms_accepted = Column(Boolean, default=False, nullable=False)
+    terms_accepted_at = Column(DateTime, nullable=True)
+    email_opt_in = Column(Boolean, default=False, nullable=False)
+
     # Premium access control
     has_premium = Column(Boolean, default=False, nullable=False)
     premium_activated_at = Column(DateTime, nullable=True)

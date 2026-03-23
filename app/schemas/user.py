@@ -59,6 +59,8 @@ class ClientRegister(BaseModel):
     password: str
     full_name: str
     phone: Optional[str] = None
+    terms_accepted: bool = False
+    email_opt_in: bool = False
 
     @validator('password')
     def password_strength(cls, v):

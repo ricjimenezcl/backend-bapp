@@ -93,7 +93,9 @@ class AuthService:
             password=hashed_password,
             role="CLIENT",
             status="ACTIVE",
-            email_verified=False
+            email_verified=False,
+            terms_accepted=getattr(client_data, 'terms_accepted', False),
+            email_opt_in=getattr(client_data, 'email_opt_in', False),
         )
 
         self.db.add(user)

@@ -338,6 +338,31 @@ async def facebook_oauth(
     oauth_service = OAuthService(db)
     return await oauth_service.login_with_facebook(body.access_token, role=body.role)
 
+class AcceptTermsRequest(BaseModel):
+    email_opt_in: bool = False
+
+
+@router.patch("/accept-terms")
+async def accept_terms(
+    body: AcceptTermsRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Marca los T&C como aceptados para el usuario actual.
+    Llamar desde la página terms-acceptance (flujo OAuth) o registro.
+    """
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    user.terms_accepted = True
+    user.terms_accepted_at = datetime.now()
+    user.email_opt_in = body.email_opt_in
+    await db.commit()
+    return {"message": "Términos aceptados correctamente", "terms_accepted": True}
+
+
 class SendVerificationEmailRequest(BaseModel):
     email: EmailStr
 
