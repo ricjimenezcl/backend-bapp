@@ -95,6 +95,11 @@ class Settings(BaseSettings):
 
     # CORS - Maneja tanto string JSON como lista
     ALLOWED_ORIGINS: List[str] = Field(default=[
+        # Producción
+        "https://bappsearch.com",
+        "https://www.bappsearch.com",
+        "https://ricjimenezcl.github.io",
+        # Desarrollo local
         "http://localhost:8100",
         "http://localhost:8000",
         "http://localhost:4200",
