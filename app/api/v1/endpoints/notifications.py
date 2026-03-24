@@ -21,12 +21,14 @@ async def get_notifications(
     Obtener mis notificaciones (recientes) con cache best-effort
     """
     cached = get_notifications_cache(current_user.id)
-    if cached:
+    if cached and isinstance(cached, list):
         print(f"✅ [CACHE] Notificaciones hit ({current_user.id})")
         return cached
     service = NotificationService(db)
-    notifications = await service.get_my_notifications(current_user.id)
-    set_notifications_cache(current_user.id, notifications)
+    notifications, _ = await service.get_user_notifications(current_user.id, skip=0, limit=50)
+    # Serialize to dicts before caching so Redis can store them as JSON
+    serialized = [NotificationSchema.model_validate(n).model_dump(mode="json") for n in notifications]
+    set_notifications_cache(current_user.id, serialized)
     print(f"✅ [CACHE] Guardado notificaciones ({current_user.id})")
     return notifications
 
@@ -40,4 +42,9 @@ async def mark_notification_read(
     Marcar una notificación como leída
     """
     service = NotificationService(db)
-    return await service.mark_as_read(notification_id, current_user.id)
+    notification = await service.get_notification_by_id(notification_id)
+    if not notification or notification.user_id != current_user.id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Notification not found")
+    await service.mark_notification_as_read(notification_id)
+    return await service.get_notification_by_id(notification_id)
