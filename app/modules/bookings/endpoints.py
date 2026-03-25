@@ -20,6 +20,7 @@ from app.schemas.booking import (
     CreateBookingNoteRequest, BookingNoteResponse
 )
 from app.models.user import User
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -473,15 +474,11 @@ def get_provider_bookings_alias(
     return bookings
 
 
-class BookingStatusUpdate(BaseModel if True else object):
+class BookingStatusUpdate(BaseModel):
     status: str  # confirmed | rejected | in_progress | completed | cancelled
 
 
-from pydantic import BaseModel as _BaseModel
-
-
-class _StatusBody(_BaseModel):
-    status: str
+_StatusBody = BookingStatusUpdate
 
 
 @router.put("/{booking_id}/status", response_model=BookingResponse)
