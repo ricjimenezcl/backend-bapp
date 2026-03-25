@@ -34,6 +34,41 @@ class ClientPublicResponse(BaseModel):
         from_attributes = True
 
 
+@router.get("/me", response_model=ClientPublicResponse)
+async def get_client_me(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Obtener perfil del cliente autenticado."""
+    query = (
+        select(User)
+        .options(selectinload(User.client_profile))
+        .where(User.id == current_user.id)
+        .where(User.role == "CLIENT")
+    )
+    result = await db.execute(query)
+    user = result.unique().scalar_one_or_none()
+
+    if not user or not user.client_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client profile not found"
+        )
+
+    profile = user.client_profile
+    return ClientPublicResponse(
+        id=profile.id,
+        user_id=user.id,
+        run=None,
+        full_name=profile.full_name,
+        phone=profile.phone,
+        avatar=profile.avatar,
+        bio=profile.bio,
+        rating_avg=float(profile.rating_avg) if profile.rating_avg else None,
+        email=user.email
+    )
+
+
 @router.patch("/me", response_model=ClientPublicResponse)
 async def update_client_me(
     update_data: ClientUpdateRequest,

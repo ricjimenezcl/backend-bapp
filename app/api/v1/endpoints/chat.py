@@ -480,6 +480,51 @@ async def send_message(
         )
 
 
+@router.get("/unread-count")
+async def get_unread_count(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Total de mensajes no leídos en todas las conversaciones del usuario."""
+    try:
+        service = ChatService(db)
+        # Obtener todas las conversaciones del usuario
+        provider_id = None
+        if current_user.role == "PROVIDER":
+            from sqlalchemy import select as _select
+            p_result = await db.execute(_select(Provider).where(Provider.user_id == current_user.id))
+            p = p_result.scalar_one_or_none()
+            if p:
+                provider_id = p.id
+        conversations, _ = await service.get_user_conversations(
+            user_id=current_user.id, provider_id=provider_id, skip=0, limit=500
+        )
+        conv_ids = [c.id for c in conversations]
+        counts = await service.get_unread_counts_bulk(conv_ids, current_user.id)
+        total = sum(counts.values())
+        return {"count": total}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.put("/conversations/{conversation_id}/read")
+async def mark_conversation_read(
+    conversation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Marca todos los mensajes de una conversación como leídos (alias PUT de /read-all)."""
+    try:
+        service = ChatService(db)
+        count = await service.mark_conversation_messages_as_read(
+            conversation_id=conversation_id,
+            reader_id=current_user.id
+        )
+        return {"status": "success", "marked_read": count}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.post("/conversations/{conversation_id}/read-all")
 async def mark_all_messages_as_read(
     conversation_id: int,

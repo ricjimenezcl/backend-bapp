@@ -440,6 +440,148 @@ def add_note(
 
 
 # ============================================================================
+# ALIAS ENDPOINTS — frontend compatibility
+# ============================================================================
+
+@router.get("/my-bookings", response_model=List[BookingResponse])
+def get_my_bookings(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: User = Depends(get_current_user_sync),
+    booking_service: BookingService = Depends(get_booking_service),
+):
+    """📋 Mis reservas (cliente). Alias de /bookings/client/{id} que devuelve lista plana."""
+    user_id = int(current_user.id) if isinstance(current_user.id, str) else current_user.id
+    bookings = booking_service.get_bookings_for_client(user_id)
+    if status_filter:
+        bookings = [b for b in bookings if b.status.lower() == status_filter.lower()]
+    return bookings
+
+
+@router.get("/provider-bookings", response_model=List[BookingResponse])
+def get_provider_bookings_alias(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: User = Depends(get_current_user_sync),
+    booking_service: BookingService = Depends(get_booking_service),
+):
+    """📋 Reservas del proveedor. Alias de /bookings/provider que devuelve lista plana."""
+    if current_user.role != "PROVIDER":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo proveedores")
+    provider_id = int(current_user.id) if isinstance(current_user.id, str) else current_user.id
+    bookings = booking_service.get_bookings_for_provider(provider_id)
+    if status_filter:
+        bookings = [b for b in bookings if b.status.lower() == status_filter.lower()]
+    return bookings
+
+
+class BookingStatusUpdate(BaseModel if True else object):
+    status: str  # confirmed | rejected | in_progress | completed | cancelled
+
+
+from pydantic import BaseModel as _BaseModel
+
+
+class _StatusBody(_BaseModel):
+    status: str
+
+
+@router.put("/{booking_id}/status", response_model=BookingResponse)
+def update_booking_status(
+    booking_id: str,
+    body: _StatusBody,
+    current_user: User = Depends(get_current_user_sync),
+    booking_service: BookingService = Depends(get_booking_service),
+):
+    """🔄 Actualizar estado de una reserva (proveedor)."""
+    try:
+        booking_id_int = int(booking_id) if isinstance(booking_id, str) else booking_id
+        provider_id = int(current_user.id) if isinstance(current_user.id, str) else current_user.id
+        new_status = body.status.upper()
+
+        if new_status == "CONFIRMED":
+            from app.schemas.booking import ConfirmBookingRequest
+            return booking_service.confirm_booking(booking_id_int, provider_id, ConfirmBookingRequest())
+        elif new_status in ("REJECTED", "CANCELLED"):
+            from app.schemas.booking import CancelBookingRequest
+            return booking_service.cancel_booking(
+                booking_id_int, provider_id, CancelBookingRequest(reason="Rejected by provider")
+            )
+        elif new_status == "COMPLETED":
+            return booking_service.complete_booking(booking_id_int, provider_id)
+        else:
+            raise HTTPException(status_code=400, detail=f"Estado no soportado: {body.status}")
+    except HTTPException:
+        raise
+    except (ValueError, PermissionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/available-slots")
+def get_available_slots(
+    provider_id: int = Query(...),
+    date: str = Query(..., description="YYYY-MM-DD"),
+    slot_duration: int = Query(60),
+    current_user: User = Depends(get_current_user_sync),
+    db: Session = Depends(get_db),
+):
+    """⏰ Slots disponibles para un proveedor en una fecha."""
+    from datetime import date as date_type, time as time_type
+    from app.models.provider import ProviderWorkingHours
+    from app.models.booking import Booking as BookingModel
+
+    try:
+        query_date = date_type.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usa YYYY-MM-DD.")
+
+    day_of_week = query_date.weekday()
+    wh = (
+        db.query(ProviderWorkingHours)
+        .filter(
+            ProviderWorkingHours.provider_id == provider_id,
+            ProviderWorkingHours.day_of_week == day_of_week,
+            ProviderWorkingHours.is_active == True,
+        )
+        .first()
+    )
+
+    if not wh:
+        return {"date": date, "provider_id": provider_id, "available_slots": [], "total_available": 0, "slot_duration": slot_duration}
+
+    def _t2m(t): return t.hour * 60 + t.minute
+    def _m2s(m): return f"{m // 60:02d}:{m % 60:02d}"
+
+    start_min, end_min = _t2m(wh.start_time), _t2m(wh.end_time)
+    all_slots = []
+    cur = start_min
+    while cur + slot_duration <= end_min:
+        all_slots.append(_m2s(cur))
+        cur += slot_duration
+
+    occupied = db.query(BookingModel).filter(
+        BookingModel.provider_id == provider_id,
+        BookingModel.scheduled_date == query_date,
+        BookingModel.status.in_(["PENDING", "CONFIRMED", "IN_PROGRESS"]),
+    ).all()
+
+    blocked = set()
+    for b in occupied:
+        if b.scheduled_time:
+            base = _t2m(b.scheduled_time)
+            dur = b.duration or slot_duration
+            for off in range(0, dur, slot_duration):
+                blocked.add(base + off)
+
+    available = [s for s in all_slots if _t2m(time_type.fromisoformat(s)) not in blocked]
+    return {
+        "date": date,
+        "provider_id": provider_id,
+        "slot_duration": slot_duration,
+        "available_slots": available,
+        "total_available": len(available),
+    }
+
+
+# ============================================================================
 # HEALTH CHECK
 # ============================================================================
 

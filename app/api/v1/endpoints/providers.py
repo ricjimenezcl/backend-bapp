@@ -146,6 +146,94 @@ async def update_provider_me(
     return await provider_service.update_provider_profile(current_user.id, update_data)
 
 
+@router.get("/stats")
+async def get_my_provider_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Estadísticas del proveedor autenticado."""
+    if current_user.role != "PROVIDER":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not a provider")
+    result = await db.execute(select(Provider).where(Provider.user_id == current_user.id))
+    provider = result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=404, detail=PROVIDER_NOT_FOUND)
+    from app.models.booking import Booking as _Booking
+    from sqlalchemy import func as _func
+    from sqlalchemy import case as _case
+    stats_result = await db.execute(
+        select(
+            _func.count().label("total"),
+            _func.sum(_case((_Booking.status == "PENDING", 1), else_=0)).label("pending"),
+            _func.sum(_case((_Booking.status == "COMPLETED", 1), else_=0)).label("completed"),
+        ).where(_Booking.provider_id == provider.id)
+    )
+    row = stats_result.one()
+    return {
+        "total_bookings": row.total or 0,
+        "pending_bookings": row.pending or 0,
+        "completed_bookings": row.completed or 0,
+        "total_earnings": 0.0,
+        "rating_avg": float(provider.rating_avg) if provider.rating_avg else 0.0,
+    }
+
+
+@router.get("/validation/status")
+async def get_my_validation_status(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Estado de validación de identidad del proveedor autenticado."""
+    if current_user.role != "PROVIDER":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not a provider")
+    result = await db.execute(select(Provider).where(Provider.user_id == current_user.id))
+    provider = result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=404, detail=PROVIDER_NOT_FOUND)
+    return {
+        "status": provider.validation_status or "not_submitted",
+        "notes": provider.validation_notes,
+    }
+
+
+@router.post("/validate-identity/me", response_model=ProviderResponse)
+async def validate_identity_me(
+    identity_document: UploadFile = File(...),
+    selfie: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Validación de identidad del proveedor autenticado (sin requerir provider_id en form)."""
+    if current_user.role != "PROVIDER":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not a provider")
+    result = await db.execute(select(Provider).where(Provider.user_id == current_user.id))
+    provider = result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=404, detail=PROVIDER_NOT_FOUND)
+    doc_upload = cloudinary.uploader.upload(identity_document.file, folder="providers/docs", public_id=f"provider_{provider.id}_doc")
+    selfie_upload = cloudinary.uploader.upload(selfie.file, folder="providers/selfies", public_id=f"provider_{provider.id}_selfie")
+    provider.identity_document_url = doc_upload.get("secure_url")
+    provider.selfie_url = selfie_upload.get("secure_url")
+    provider.validation_status = "pending"
+    provider.validation_notes = None
+    await db.commit()
+    await db.refresh(provider)
+    user_result = await db.execute(select(User).where(User.id == provider.user_id))
+    user = user_result.scalar_one_or_none()
+    return ProviderResponse(
+        id=provider.id, user_id=provider.user_id,
+        run=provider.run or NO_REGISTRADO, full_name=provider.full_name,
+        phone=provider.phone or NO_REGISTRADO, avatar=provider.avatar,
+        bio=provider.bio or "", rating_avg=provider.rating_avg,
+        created_at=provider.created_at, updated_at=provider.updated_at,
+        email=user.email if user else "", status=user.status if user else "",
+        identity_document_url=provider.identity_document_url,
+        selfie_url=provider.selfie_url,
+        validation_status=provider.validation_status,
+        validation_notes=provider.validation_notes
+    )
+
+
 @router.get("/nearby", response_model=List[ServiceProviderResponse])
 async def get_nearby_providers(
     lat: float = Query(..., description="Latitud del usuario"),

@@ -148,6 +148,47 @@ async def upsert_working_hours(
     return _to_response(new_hours)
 
 
+@router.post("/bulk", response_model=List[WorkingHoursResponse])
+async def bulk_upsert_working_hours(
+    hours_list: List[WorkingHoursCreate],
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Crea o actualiza múltiples horarios a la vez (upsert por día). Acepta array de horarios."""
+    provider = await _get_provider_from_user(current_user, db)
+    responses = []
+    for hours_in in hours_list:
+        result = await db.execute(
+            select(ProviderWorkingHours).where(
+                ProviderWorkingHours.provider_id == provider.id,
+                ProviderWorkingHours.day_of_week == hours_in.day_of_week,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        start = time.fromisoformat(hours_in.start_time)
+        end = time.fromisoformat(hours_in.end_time)
+        if existing:
+            existing.start_time = start
+            existing.end_time = end
+            existing.is_active = hours_in.is_active
+            db.add(existing)
+        else:
+            existing = ProviderWorkingHours(
+                provider_id=provider.id,
+                day_of_week=hours_in.day_of_week,
+                start_time=start,
+                end_time=end,
+                is_active=hours_in.is_active,
+            )
+            db.add(existing)
+        responses.append(existing)
+    await db.commit()
+    for r in responses:
+        await db.refresh(r)
+    logger.info(f"[HORARIOS] Proveedor {provider.id} actualizó {len(responses)} horarios en bulk")
+    return [_to_response(r) for r in responses]
+
+
 @router.delete("/me/{day_of_week}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_working_hours(
     day_of_week: int,

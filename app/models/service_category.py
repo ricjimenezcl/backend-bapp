@@ -10,7 +10,7 @@ class ServiceCategory(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text)
-    icon = Column(String(50))
+    icon = Column(String(500))
     parent_category = Column(String(100))
     is_active = Column(Boolean, default=True)
     main_category_id = Column(Integer, ForeignKey("main_categories.id"))
@@ -27,7 +27,7 @@ class MainCategory(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
-    icon = Column(String(50))
+    icon = Column(String(500))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
 
