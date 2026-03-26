@@ -69,7 +69,7 @@ async def get_client_bookings(
     # Convertir a responses
     booking_service = BookingService(db)
     responses = [booking_service._booking_to_response(booking) for booking in bookings]
-    cache_set(cache_key, responses, ttl=30)
+    cache_set(cache_key, [r.model_dump(mode='json') for r in responses], ttl=30)
     return responses
 
 
@@ -101,7 +101,7 @@ async def get_provider_bookings(
     booking_service = BookingService(db)
     # Security: Resolve provider inside service using current_user.id
     responses = await booking_service.get_bookings_for_provider(current_user.id)
-    cache_set(cache_key, responses, ttl=30)
+    cache_set(cache_key, [r.model_dump(mode='json') if hasattr(r, 'model_dump') else r for r in responses], ttl=30)
     return responses
 
 
