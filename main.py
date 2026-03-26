@@ -53,6 +53,20 @@ async def lifespan(app: FastAPI):
         _startup_logger.warning(f"Database initialization error: {type(e).__name__}: {e}")
         _startup_logger.warning("Continuing without database tables...")
 
+    # Run migration 014: align notifications table columns (idempotent)
+    try:
+        import pathlib
+        from sqlalchemy import text
+        mig_path = pathlib.Path(__file__).parent / "migrations" / "014_create_notifications_table.sql"
+        if mig_path.exists():
+            sql = mig_path.read_text(encoding="utf-8")
+            async with engine_async.begin() as conn:
+                await conn.execute(text(sql))
+            _startup_logger.info("Migration 014 (notifications) applied successfully")
+    except Exception as e:
+        _startup_logger.warning(f"Migration 014 error: {type(e).__name__}: {e}")
+        _startup_logger.warning("Continuing without migration 014...")
+
     # Initialize Event Dispatcher and Notification Handlers
     try:
         dispatcher = get_dispatcher()
