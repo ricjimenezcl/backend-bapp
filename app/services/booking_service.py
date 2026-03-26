@@ -288,7 +288,7 @@ class BookingService:
         cancellation = BookingCancellation(
             booking_id=booking_id_int,
             cancelled_by_id=user_id_int,
-            reason=CancellationReason[request.reason.value],
+            reason=request.reason.value,
             reason_comment=request.reason_comment,
             refund_percentage=100,
             refund_amount=booking.total_price
