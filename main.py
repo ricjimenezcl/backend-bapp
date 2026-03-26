@@ -100,7 +100,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Agrega cabeceras de seguridad HTTP a todas las respuestas."""
 
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            raise
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -188,9 +191,20 @@ def create_app() -> FastAPI:
         except Exception:
             exc_detail = "Error converting exception"
         _exc_logger.error(f"Unhandled exception: {exc_type}: {exc_detail}", exc_info=True)
+
+        # Add CORS headers manually so the browser sees the error (not a CORS block)
+        origin = request.headers.get("origin", "")
+        cors_headers = {}
+        if origin in settings.ALLOWED_ORIGINS:
+            cors_headers = {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": "true",
+            }
+
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Internal server error: {exc_type}"}
+            content={"detail": f"Internal server error: {exc_type}"},
+            headers=cors_headers if cors_headers else None,
         )
 
     # Include routers
