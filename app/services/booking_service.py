@@ -10,6 +10,8 @@ from typing import Optional, List, Tuple
 from uuid import UUID
 import logging
 
+logger = logging.getLogger(__name__)
+
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 
@@ -280,41 +282,64 @@ class BookingService:
         
         if booking.status == 'COMPLETED':
             raise ValueError("No se puede cancelar una reserva completada")
-        
+
+        if booking.status == 'CANCELLED':
+            return self._booking_to_response(booking)
+
         previous_status = booking.status
+
+        # ── Paso 1: actualizar estado (crítico) ──────────────────────────
+        from datetime import timezone
         booking.status = 'CANCELLED'
         booking.updated_at = datetime.now(timezone.utc)
-        
-        cancellation = BookingCancellation(
-            booking_id=booking_id_int,
-            cancelled_by_id=user_id_int,
-            reason=request.reason.value,
-            reason_comment=request.reason_comment,
-            refund_percentage=100,
-            refund_amount=booking.total_price
-        )
-        
-        self.db.add(cancellation)
-        
-        self._record_status_change(
-            booking_id=booking_id_int,
-            previous_status=previous_status,
-            new_status='CANCELLED',
-            changed_by_id=user_id_int,
-            reason=request.reason.value,
-            reason_comment=request.reason_comment
-        )
-        
         self.db.commit()
-        
+        self.db.refresh(booking)
+
+        # ── Paso 2: registro de cancelación (no crítico) ─────────────────
+        try:
+            existing = self.db.query(BookingCancellation).filter(
+                BookingCancellation.booking_id == booking_id_int
+            ).first()
+            if not existing:
+                cancellation = BookingCancellation(
+                    booking_id=booking_id_int,
+                    cancelled_by_id=user_id_int,
+                    reason=request.reason.value,
+                    reason_comment=request.reason_comment,
+                )
+                self.db.add(cancellation)
+                self.db.commit()
+        except Exception as e:
+            logger.warning(f"[CANCEL] BookingCancellation insert skipped: {e}")
+            self.db.rollback()
+
+        # ── Paso 3: historial de estado (no crítico) ─────────────────────
+        try:
+            self._record_status_change(
+                booking_id=booking_id_int,
+                previous_status=previous_status,
+                new_status='CANCELLED',
+                changed_by_id=user_id_int,
+                reason=request.reason.value,
+                reason_comment=request.reason_comment
+            )
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"[CANCEL] status_history insert skipped: {e}")
+            self.db.rollback()
+
+        # ── Paso 4: evento (no crítico) ──────────────────────────────────
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
-                booking_id=str(booking_id),
-                previous_status=str(previous_status),
-                new_status="CANCELLED",
-                changed_by_id=str(user_id)
-            ))
-        
+            try:
+                self.event_bus.publish(BookingStatusChangedEvent(
+                    booking_id=str(booking_id),
+                    previous_status=str(previous_status),
+                    new_status="CANCELLED",
+                    changed_by_id=str(user_id)
+                ))
+            except Exception as e:
+                logger.warning(f"[CANCEL] event_bus publish skipped: {e}")
+
         return self._booking_to_response(booking)
     
     # ========================================================================
