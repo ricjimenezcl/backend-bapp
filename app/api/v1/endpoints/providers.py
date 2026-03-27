@@ -14,6 +14,9 @@ from app.core.database import get_db_async
 from app.models.provider import Provider, ServiceProvider
 from app.models.user import User
 from app.schemas.provider import (
+import logging
+logger = logging.getLogger(__name__)
+
     ServiceProviderResponse,
     ServiceProviderCreateRequest,
     ServiceProviderCreateResponse,
@@ -247,7 +250,7 @@ async def get_nearby_providers(
     category_id = hash(service_name) if service_name else 0
     cached = get_nearby_providers_cache(category_id, lat, lng)
     if cached:
-        print(f"✅ [CACHE] Proveedores cercanos hit ({category_id}, {lat}, {lng})")
+        logger.info(f"✅ [CACHE] Proveedores cercanos hit ({category_id}, {lat}, {lng})")
         return cached
     geolocation_service = GeolocationService(db)
     providers = await geolocation_service.find_nearby_providers(
@@ -257,7 +260,7 @@ async def get_nearby_providers(
         service_name=service_name
     )
     set_nearby_providers_cache(category_id, lat, lng, providers)
-    print(f"✅ [CACHE] Guardado proveedores cercanos ({category_id}, {lat}, {lng})")
+    logger.info(f"✅ [CACHE] Guardado proveedores cercanos ({category_id}, {lat}, {lng})")
     return providers
 
 @router.get("/nearby/service/{service_id}", response_model=List[ServiceProviderResponse])
@@ -446,12 +449,12 @@ async def get_provider(
     # 1. Intentar cache
     cached = get_provider_profile_cache(provider_id)
     if cached:
-        print(f"✅ [CACHE] Provider {provider_id} hit")
+        logger.info(f"✅ [CACHE] Provider {provider_id} hit")
         return ProviderResponse(**cached)
 
     from app.models.user import User
     try:
-        print(f"🔍 [DB] Consultando provider con ID: {provider_id}")
+        logger.info(f"🔍 [DB] Consultando provider con ID: {provider_id}")
         result = await db.execute(
             select(Provider, User.email, User.status)
             .join(User, Provider.user_id == User.id)
@@ -459,7 +462,7 @@ async def get_provider(
         )
         row = result.first()
         if not row:
-            print(f"❌ Provider no encontrado: {provider_id}")
+            logger.error(f"❌ Provider no encontrado: {provider_id}")
             raise HTTPException(status_code=404, detail="Provider not found")
         provider, user_email, user_status = row
         run_value = provider.run if provider.run is not None else "No registrado"
@@ -483,14 +486,14 @@ async def get_provider(
         )
         # Guardar en cache (best-effort)
         set_provider_profile_cache(provider_id, response_data.dict())
-        print(f"✅ [CACHE] Guardado provider {provider_id}")
+        logger.info(f"✅ [CACHE] Guardado provider {provider_id}")
         return response_data
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en get_provider: {str(e)}")
+        logger.error(f"❌ Error en get_provider: {str(e)}")
         import traceback
-        print(f"❌ Traceback completo: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback completo: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving provider: {str(e)}"
@@ -508,11 +511,11 @@ async def get_provider_detailed(
     # --- Cache first ---
     cached = get_provider_detailed_cache(provider_id)
     if cached:
-        print(f"[CACHE] provider:detailed:{provider_id} HIT")
+        logger.info(f"[CACHE] provider:detailed:{provider_id} HIT")
         return cached
 
     try:
-        print(f"🔍 [DB] Consultando provider detallado con ID: {provider_id}")
+        logger.info(f"🔍 [DB] Consultando provider detallado con ID: {provider_id}")
         
         # 1. Obtener datos del provider
         result = await db.execute(
@@ -523,12 +526,12 @@ async def get_provider_detailed(
         row = result.first()
         
         if not row:
-            print(f"❌ Provider no encontrado: {provider_id}")
+            logger.error(f"❌ Provider no encontrado: {provider_id}")
             raise HTTPException(status_code=404, detail="Provider not found")
         
         provider, user_email, user_status = row
         
-        print(f"✅ Provider encontrado: {provider.id}")
+        logger.info(f"✅ Provider encontrado: {provider.id}")
         
         # 2. Obtener servicios del provider
         from app.models.provider import ServiceProvider
@@ -539,7 +542,7 @@ async def get_provider_detailed(
         )
         services = services_result.scalars().all()
         
-        print(f"✅ Servicios encontrados: {len(services)}")
+        logger.info(f"✅ Servicios encontrados: {len(services)}")
         
         # 3. Obtener conteo de reviews
         from app.models.review import Review
@@ -549,7 +552,7 @@ async def get_provider_detailed(
         )
         total_reviews = reviews_result.scalar() or 0
         
-        print(f"✅ Total de reviews: {total_reviews}")
+        logger.info(f"✅ Total de reviews: {total_reviews}")
         
         # 4. avatar es VARCHAR(500) con URL de Cloudinary
         avatar_value = provider.avatar
@@ -618,7 +621,7 @@ async def get_provider_detailed(
             'updated_at': provider.updated_at
         }
         
-        print(f"✅ Respuesta detallada preparada para provider {provider_id}")
+        logger.info(f"✅ Respuesta detallada preparada para provider {provider_id}")
         # --- Cache the result ---
         try:
             import json
@@ -631,9 +634,9 @@ async def get_provider_detailed(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en get_provider_detailed: {str(e)}")
+        logger.error(f"❌ Error en get_provider_detailed: {str(e)}")
         import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving provider details: {str(e)}"
@@ -648,7 +651,7 @@ async def update_provider(
 ):
     """Actualizar información del proveedor"""
     try:
-        print(f"🔍 Actualizando provider con ID: {provider_id}")
+        logger.info(f"🔍 Actualizando provider con ID: {provider_id}")
         
         # Primero obtener el provider existente
         result = await db.execute(
@@ -659,7 +662,7 @@ async def update_provider(
         row = result.first()
         
         if not row:
-            print(f"❌ Provider no encontrado: {provider_id}")
+            logger.error(f"❌ Provider no encontrado: {provider_id}")
             raise HTTPException(status_code=404, detail="Provider not found")
         
         provider, user = row[0], None
@@ -681,10 +684,10 @@ async def update_provider(
             user = user_result.scalar_one_or_none()
         
         if not user:
-            print(f"❌ User no encontrado para provider: {provider_id}")
+            logger.error(f"❌ User no encontrado para provider: {provider_id}")
             raise HTTPException(status_code=404, detail="User not found")
         
-        print(f"✅ Provider y User encontrados para actualización")
+        logger.info(f"✅ Provider y User encontrados para actualización")
 
         # Actualizar campos del Provider
         if provider_data.full_name is not None:
@@ -700,7 +703,7 @@ async def update_provider(
         if provider_data.avatar is not None:
             if provider_data.avatar == "":  # Si es string vacío, eliminar avatar
                 provider.avatar = None
-                print("🗑️ Avatar eliminado")
+                logger.info("🗑️ Avatar eliminado")
             else:
                 try:
                     from app.infra.storage.cloudinary_storage import CloudinaryStorage
@@ -728,12 +731,12 @@ async def update_provider(
                     )
                     
                     provider.avatar = upload_result.secure_url
-                    print(f"✅ Avatar subido a Cloudinary: {provider.avatar}")
+                    logger.info(f"✅ Avatar subido a Cloudinary: {provider.avatar}")
                     
                 except Exception as e:
-                    print(f"❌ Error subiendo avatar a Cloudinary: {e}")
+                    logger.error(f"❌ Error subiendo avatar a Cloudinary: {e}")
                     import traceback
-                    print(f"❌ Traceback: {traceback.format_exc()}")
+                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Error uploading avatar"
@@ -770,7 +773,7 @@ async def update_provider(
         try:
             invalidate_provider_cache(provider_id)
             invalidate_provider_detailed_cache(provider_id)
-            print(f"[CACHE] Invalidated provider:{provider_id} caches")
+            logger.info(f"[CACHE] Invalidated provider:{provider_id} caches")
         except Exception:
             pass  # fail-open
         
@@ -778,7 +781,7 @@ async def update_provider(
         await db.refresh(provider)
         await db.refresh(user)
         
-        print(f"✅ Provider actualizado exitosamente: {provider_id}")
+        logger.info(f"✅ Provider actualizado exitosamente: {provider_id}")
         
         # Retornar respuesta actualizada
         return ProviderResponse(
@@ -801,9 +804,9 @@ async def update_provider(
         raise
     except Exception as e:
         await db.rollback()
-        print(f"❌ Error en update_provider: {str(e)}")
+        logger.error(f"❌ Error en update_provider: {str(e)}")
         import traceback
-        print(f"❌ Traceback completo: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback completo: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating provider: {str(e)}"
@@ -859,7 +862,7 @@ async def create_service_provider(
     Crear un nuevo servicio para un proveedor
     """
     try:
-        print(f"🔍 Datos recibidos en el backend: {service_data}")
+        logger.info(f"🔍 Datos recibidos en el backend: {service_data}")
         
         # Obtener el provider directamente
         from sqlalchemy.future import select
@@ -867,7 +870,7 @@ async def create_service_provider(
         from app.models.provider import Provider
         
         # Buscar el provider del usuario autenticado (no confiar en id_contacto del body)
-        print(f"🎯 Buscando provider para current_user.id: {current_user.id}")
+        logger.info(f"🎯 Buscando provider para current_user.id: {current_user.id}")
 
         result = await db.execute(
             select(Provider).where(Provider.user_id == current_user.id)
@@ -881,11 +884,11 @@ async def create_service_provider(
             )
         
         # DEPURACIÓN: Verificar qué provider se encontró
-        print(f"✅ Provider encontrado:")
-        print(f"   - Provider ID: {provider.id}")
-        print(f"   - User ID: {provider.user_id}")
-        print(f"   - Full Name: {provider.full_name}")
-        print(f"🎯 Usando provider_id={provider.id} para crear el servicio")
+        logger.info(f"✅ Provider encontrado:")
+        logger.info(f"   - Provider ID: {provider.id}")
+        logger.info(f"   - User ID: {provider.user_id}")
+        logger.info(f"   - Full Name: {provider.full_name}")
+        logger.info(f"🎯 Usando provider_id={provider.id} para crear el servicio")
 
         # 2.6 ── Validar que el proveedor haya completado la verificación de identidad
         from app.models.document import ProviderVerification
@@ -952,9 +955,9 @@ async def create_service_provider(
 
         await db.commit()
 
-        print(f"✅ Servicio creado exitosamente:")
-        print(f"   - Service ID: {new_service_id}")
-        print(f"   - Provider ID: {provider.id}")
+        logger.info(f"✅ Servicio creado exitosamente:")
+        logger.info(f"   - Service ID: {new_service_id}")
+        logger.info(f"   - Provider ID: {provider.id}")
 
         return ServiceProviderCreateResponse(
             id=new_service_id,
@@ -977,9 +980,9 @@ async def create_service_provider(
         raise
     except Exception as e:
         await db.rollback()
-        print(f"❌ Error en create_service_provider: {str(e)}")
+        logger.error(f"❌ Error en create_service_provider: {str(e)}")
         import traceback
-        print(f"❌ Traceback completo: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback completo: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating service: {str(e)}"
@@ -1097,7 +1100,7 @@ async def toggle_service_availability(
 
         await db.commit()
 
-        print(
+        logger.info(
             f"✅ Servicio {service_id} → is_available={new_is_available} "
             f"validation_status={new_validation_status}"
         )
@@ -1114,7 +1117,7 @@ async def toggle_service_availability(
         raise
     except Exception as e:
         await db.rollback()
-        print(f"❌ Error toggle_service_availability: {e}")
+        logger.error(f"❌ Error toggle_service_availability: {e}")
         raise HTTPException(status_code=500, detail=f"Error actualizando disponibilidad: {str(e)}")
 
 
@@ -1131,7 +1134,7 @@ async def get_provider_service(
     try:
         from sqlalchemy.future import select
         
-        print(f"🔍 Consultando servicio {service_id} del proveedor {provider_id}")
+        logger.info(f"🔍 Consultando servicio {service_id} del proveedor {provider_id}")
         
         # 1. Obtener el servicio — service_id es el PK de service_providers (ServiceProvider.id)
         result = await db.execute(
@@ -1145,13 +1148,13 @@ async def get_provider_service(
         service_provider = result.scalars().first()
         
         if not service_provider:
-            print(f"❌ Servicio {service_id} no encontrado para proveedor {provider_id}")
+            logger.error(f"❌ Servicio {service_id} no encontrado para proveedor {provider_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Service not found or does not belong to this provider"
             )
         
-        print(f"✅ Servicio encontrado: {service_provider.business_name}")
+        logger.info(f"✅ Servicio encontrado: {service_provider.business_name}")
 
         # Incrementar contador de vistas a servicios del proveedor (fail-open)
         try:
@@ -1169,12 +1172,12 @@ async def get_provider_service(
         provider_row = provider_result.first()
         
         if not provider_row:
-            print(f"⚠️ Provider {provider_id} no encontrado, retornando solo datos del servicio")
+            logger.warning(f"⚠️ Provider {provider_id} no encontrado, retornando solo datos del servicio")
             # Si no encontramos el provider, retornamos solo el servicio
             return service_provider
         
         provider, user_email, user_status = provider_row
-        print(f"✅ Provider encontrado: {provider.full_name}")
+        logger.info(f"✅ Provider encontrado: {provider.full_name}")
         
         # 3. Obtener conteo de reviews del provider
         from app.models.review import Review
@@ -1183,7 +1186,7 @@ async def get_provider_service(
             .where(Review.provider_id == provider_id)
         )
         total_reviews = reviews_result.scalar() or 0
-        print(f"📊 Total reviews: {total_reviews}")
+        logger.info(f"📊 Total reviews: {total_reviews}")
         
         # 4. avatar es VARCHAR(500) con URL de Cloudinary
         
@@ -1225,15 +1228,15 @@ async def get_provider_service(
             }
         
         # 7. Retornar respuesta enriquecida
-        print(f"✅ Respuesta completa lista para servicio {service_id}")
+        logger.info(f"✅ Respuesta completa lista para servicio {service_id}")
         return ServiceProviderResponse(**response_dict)
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error en get_provider_service: {str(e)}")
+        logger.error(f"❌ Error en get_provider_service: {str(e)}")
         import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting service: {str(e)}"
@@ -1274,7 +1277,7 @@ async def update_service_provider(
     service_id en la URL corresponde al PK de service_providers (ServiceProvider.id).
     """
     try:
-        print(f"🔍 Actualizando servicio {service_id} del proveedor {provider_id}")
+        logger.info(f"🔍 Actualizando servicio {service_id} del proveedor {provider_id}")
 
         result = await db.execute(
             select(ServiceProvider)
@@ -1292,7 +1295,7 @@ async def update_service_provider(
                 detail=SERVICE_NOT_FOUND
             )
 
-        print(f"✅ Servicio encontrado: {service_provider.business_name}")
+        logger.info(f"✅ Servicio encontrado: {service_provider.business_name}")
         
         # Actualizar solo los campos proporcionados
         if update_data.business_name is not None:
@@ -1319,7 +1322,7 @@ async def update_service_provider(
         await db.commit()
         await db.refresh(service_provider)
         
-        print(f"✅ Servicio actualizado exitosamente: {service_id}")
+        logger.info(f"✅ Servicio actualizado exitosamente: {service_id}")
 
         return service_provider
 
@@ -1328,9 +1331,9 @@ async def update_service_provider(
         raise
     except Exception as e:
         await db.rollback()
-        print(f"❌ Error en update_service_provider: {str(e)}")
+        logger.error(f"❌ Error en update_service_provider: {str(e)}")
         import traceback
-        print(f"❌ Traceback completo: {traceback.format_exc()}")
+        logger.error(f"❌ Traceback completo: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating service: {str(e)}"
@@ -1348,7 +1351,7 @@ async def delete_service_provider(
     service_id en la URL corresponde al PK de service_providers (ServiceProvider.id).
     """
     try:
-        print(f"🗑️  Eliminando servicio {service_id} del proveedor {provider_id}")
+        logger.info(f"🗑️  Eliminando servicio {service_id} del proveedor {provider_id}")
 
         # 0. Verificar ownership: el provider debe pertenecer al usuario autenticado
         owner_result = await db.execute(
@@ -1378,13 +1381,13 @@ async def delete_service_provider(
         service = check_result.fetchone()
         
         if not service:
-            print(f"❌ Servicio {service_id} no encontrado para el proveedor {provider_id}")
+            logger.error(f"❌ Servicio {service_id} no encontrado para el proveedor {provider_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Service not found or does not belong to this provider"
             )
         
-        print(f"✅ Servicio encontrado: {service[0]}")
+        logger.info(f"✅ Servicio encontrado: {service[0]}")
         
         # 2. Contar reviews del proveedor (reviews.provider_id es FK a providers.id)
         review_check = text("""
@@ -1399,7 +1402,7 @@ async def delete_service_provider(
         )
         
         review_count = review_result.scalar()
-        print(f"📊 Reviews asociadas: {review_count}")
+        logger.info(f"📊 Reviews asociadas: {review_count}")
         
         # 3. Eliminar el servicio (cascade debería manejar las reviews)
         delete_query = text("""
@@ -1415,7 +1418,7 @@ async def delete_service_provider(
         await db.commit()
         
         rows_deleted = result.rowcount
-        print(f"✅ Eliminación completada. Filas afectadas: {rows_deleted}")
+        logger.info(f"✅ Eliminación completada. Filas afectadas: {rows_deleted}")
         
         if rows_deleted == 0:
             raise HTTPException(
@@ -1434,9 +1437,9 @@ async def delete_service_provider(
         raise
     except Exception as e:
         await db.rollback()
-        print(f"❌ Error crítico: {str(e)}")
+        logger.error(f"❌ Error crítico: {str(e)}")
         import traceback
-        print(f"🔍 Traceback completo:\n{traceback.format_exc()}")
+        logger.info(f"🔍 Traceback completo:\n{traceback.format_exc()}")
         
         # Verificar si es error de foreign key
         if "foreign key constraint" in str(e).lower():
@@ -1460,23 +1463,23 @@ async def get_provider_services_by_user_id(
     """
     from sqlalchemy.future import select
     
-    print(f"\n🔍 GET /user/{user_id}/services")
-    print(f"   - User ID solicitado: {user_id}")
+    logger.info(f"\n🔍 GET /user/{user_id}/services")
+    logger.info(f"   - User ID solicitado: {user_id}")
     
     # Primero obtener el provider_id
     provider_service = ProviderService(db)
     provider = await provider_service.get_provider_by_user_id(user_id)
     
-    print(f"   - Provider encontrado: {provider}")
+    logger.info(f"   - Provider encontrado: {provider}")
     
     if not provider:
-        print(f"   - ❌ Provider no encontrado para user_id {user_id}")
+        logger.error(f"   - ❌ Provider no encontrado para user_id {user_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Provider not found"
         )
     
-    print(f"   - ✅ Provider ID: {provider.id}, User ID: {provider.user_id}")
+    logger.info(f"   - ✅ Provider ID: {provider.id}, User ID: {provider.user_id}")
     
     # FIXED: Use eager loading
     result = await db.execute(
@@ -1486,9 +1489,9 @@ async def get_provider_services_by_user_id(
     )
     services = result.scalars().all()
     
-    print(f"   - 📊 Servicios encontrados: {len(services)}")
+    logger.info(f"   - 📊 Servicios encontrados: {len(services)}")
     for svc in services:
-        print(f"      • Service ID: {svc.id}, Provider ID: {svc.provider_id}, Business: {svc.business_name}")
+        logger.info(f"      • Service ID: {svc.id}, Provider ID: {svc.provider_id}, Business: {svc.business_name}")
     
     return services
 
@@ -1569,9 +1572,9 @@ async def get_provider_stats(
         }
 
     except Exception as e:
-        print(f"❌ Error en get_provider_stats: {e}")
+        logger.error(f"❌ Error en get_provider_stats: {e}")
         import traceback
-        print(traceback.format_exc())
+        logger.info(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error obteniendo estadísticas: {str(e)}")
 
 

@@ -123,12 +123,13 @@ class SIIService:
     async def save_receipt_response(self, booking_id: int, response_data: dict):
         """Guardar respuesta del SII en la base de datos"""
         # Implementar guardado en base de datos
-        print(f"SII Response for booking {booking_id}: {response_data}")
+        logger.info(f"SII Response for booking {booking_id}: {response_data}")
 
 
 # ── Dispatcher desacoplado ────────────────────────────────────────────────────
 
 import logging as _logging
+logger = logging.getLogger(__name__)
 
 _sii_logger = _logging.getLogger(__name__)
 

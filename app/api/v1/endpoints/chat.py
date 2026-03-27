@@ -53,7 +53,7 @@ async def get_conversations(
         # Intentar cache
         cached = get_chat_conversations_cache(current_user.id, provider_id or 0, skip, limit)
         if cached:
-            print(f"✅ [CACHE] Chat conversations hit ({current_user.id}, {provider_id}, {skip}, {limit})")
+            logger.info(f"✅ [CACHE] Chat conversations hit ({current_user.id}, {provider_id}, {skip}, {limit})")
             return ConversationListResponse(**cached)
         conversations, total = await service.get_user_conversations(
             user_id=current_user.id,
@@ -106,7 +106,7 @@ async def get_conversations(
 
         response = dict(total=total, skip=skip, limit=limit, items=[item.dict() for item in items])
         set_chat_conversations_cache(current_user.id, provider_id or 0, skip, limit, response)
-        print(f"✅ [CACHE] Guardado chat conversations ({current_user.id}, {provider_id}, {skip}, {limit})")
+        logger.info(f"✅ [CACHE] Guardado chat conversations ({current_user.id}, {provider_id}, {skip}, {limit})")
         return ConversationListResponse(**response)
     except Exception as e:
         raise HTTPException(
@@ -197,14 +197,14 @@ async def get_conversation(
 ):
     """Get a specific conversation with all messages"""
     try:
-        print(f"\n[DEBUG GET_CONVERSATION] Starting for conversation {conversation_id}")
-        print(f"[DEBUG GET_CONVERSATION] Current user: {current_user.id}")
+        logger.debug(f"\n[DEBUG GET_CONVERSATION] Starting for conversation {conversation_id}")
+        logger.debug(f"[DEBUG GET_CONVERSATION] Current user: {current_user.id}")
         
         service = ChatService(db)
         # Don't load messages here - frontend will fetch separately
         conversation = await service.get_conversation_by_id(conversation_id, include_messages=False)
         
-        print(f"[DEBUG GET_CONVERSATION] Conversation found: {conversation is not None}")
+        logger.debug(f"[DEBUG GET_CONVERSATION] Conversation found: {conversation is not None}")
         
         if not conversation:
             raise HTTPException(
@@ -285,7 +285,7 @@ async def get_conversation(
                 name=provider_record.full_name or provider_user_obj.email.split('@')[0]
             )
         
-        print(f"[DEBUG GET_CONVERSATION] Returning conversation {conversation_id}")
+        logger.debug(f"[DEBUG GET_CONVERSATION] Returning conversation {conversation_id}")
         
         # Return conversation WITHOUT messages - frontend will fetch them separately
         response = ConversationDetailResponse(
@@ -300,16 +300,16 @@ async def get_conversation(
             provider=provider_user,
             messages=[]  # Empty - frontend will fetch with separate call
         )
-        print(f"[DEBUG GET_CONVERSATION] Response created successfully")
+        logger.debug(f"[DEBUG GET_CONVERSATION] Response created successfully")
         return response
         
     except HTTPException as e:
-        print(f"[DEBUG GET_CONVERSATION] HTTPException: {e.detail}")
+        logger.debug(f"[DEBUG GET_CONVERSATION] HTTPException: {e.detail}")
         raise
     except Exception as e:
-        print(f"[DEBUG GET_CONVERSATION] Exception: {str(e)}")
+        logger.debug(f"[DEBUG GET_CONVERSATION] Exception: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        logger.info(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
@@ -356,7 +356,7 @@ async def get_messages(
         # Intentar cache
         cached = get_chat_messages_cache(conversation_id, skip, limit)
         if cached:
-            print(f"✅ [CACHE] Chat messages hit ({conversation_id}, {skip}, {limit})")
+            logger.info(f"✅ [CACHE] Chat messages hit ({conversation_id}, {skip}, {limit})")
             return [MessageResponse(**msg) for msg in cached]
         messages, total = await service.get_conversation_messages(
             conversation_id=conversation_id,
@@ -374,7 +374,7 @@ async def get_messages(
             sender=None
         ).dict() for msg in messages]
         set_chat_messages_cache(conversation_id, skip, limit, result)
-        print(f"✅ [CACHE] Guardado chat messages ({conversation_id}, {skip}, {limit})")
+        logger.info(f"✅ [CACHE] Guardado chat messages ({conversation_id}, {skip}, {limit})")
         return [MessageResponse(**msg) for msg in result]
     except HTTPException:
         raise

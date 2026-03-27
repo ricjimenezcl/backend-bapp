@@ -67,13 +67,13 @@ class EventDispatcher:
         if event_type not in self._handlers:
             self._handlers[event_type] = []
         self._handlers[event_type].append(handler)
-        print(f"✅ Handler subscribed to {event_type.value}")
+        logger.info(f"✅ Handler subscribed to {event_type.value}")
     
     def unsubscribe(self, event_type: EventType, handler: Callable) -> None:
         """Unsubscribe a handler from an event type"""
         if event_type in self._handlers and handler in self._handlers[event_type]:
             self._handlers[event_type].remove(handler)
-            print(f"✅ Handler unsubscribed from {event_type.value}")
+            logger.info(f"✅ Handler unsubscribed from {event_type.value}")
     
     async def emit(self, event_type: EventType, data: Dict[str, Any]) -> None:
         """
@@ -87,13 +87,13 @@ class EventDispatcher:
         if len(self._event_history) > self._max_history:
             self._event_history.pop(0)
         
-        print(f"📤 Event emitted: {event_type.value} (ID: {payload.id})")
+        logger.info(f"📤 Event emitted: {event_type.value} (ID: {payload.id})")
         
         # Get handlers for this event type
         handlers = self._handlers.get(event_type, [])
         
         if not handlers:
-            print(f"   ⚠️  No handlers registered for {event_type.value}")
+            logger.warning(f"   ⚠️  No handlers registered for {event_type.value}")
             return
         
         # Execute all handlers concurrently
@@ -102,9 +102,9 @@ class EventDispatcher:
                 *[handler(payload) for handler in handlers],
                 return_exceptions=True
             )
-            print(f"   ✅ Executed {len(handlers)} handler(s)")
+            logger.info(f"   ✅ Executed {len(handlers)} handler(s)")
         except Exception as e:
-            print(f"   ❌ Error executing handlers: {str(e)}")
+            logger.error(f"   ❌ Error executing handlers: {str(e)}")
     
     def get_event_history(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get recent events for debugging"""
@@ -113,7 +113,7 @@ class EventDispatcher:
     def clear_history(self) -> None:
         """Clear event history"""
         self._event_history.clear()
-        print("✅ Event history cleared")
+        logger.info("✅ Event history cleared")
 
 
 # Global dispatcher instance

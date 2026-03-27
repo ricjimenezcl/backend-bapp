@@ -37,7 +37,7 @@ class NotificationEventHandler:
                 from app.services.twilio_service import TwilioService
                 self.twilio_service = TwilioService()
             except ImportError:
-                print("⚠️  Twilio not available, SMS/WhatsApp will be skipped")
+                logger.warning("⚠️  Twilio not available, SMS/WhatsApp will be skipped")
                 self.twilio_service = False
         return self.twilio_service if self.twilio_service is not False else None
     
@@ -46,7 +46,7 @@ class NotificationEventHandler:
         self.dispatcher.subscribe(EventType.BOOKING_CREATED, self.on_booking_created)
         self.dispatcher.subscribe(EventType.BOOKING_ACCEPTED, self.on_booking_accepted)
         self.dispatcher.subscribe(EventType.BOOKING_REJECTED, self.on_booking_rejected)
-        print("✅ Notification handlers registered")
+        logger.info("✅ Notification handlers registered")
     
     async def on_booking_created(self, payload: EventPayload) -> None:
         """
@@ -62,7 +62,7 @@ class NotificationEventHandler:
             scheduled_date = booking_data.get("scheduled_date", "Not specified")
             price = booking_data.get("price", 0)
             
-            print(f"📬 Processing BOOKING_CREATED for provider {provider_id}")
+            logger.info(f"📬 Processing BOOKING_CREATED for provider {provider_id}")
             
             # Get database session
             async for db in get_db_async():
@@ -74,7 +74,7 @@ class NotificationEventHandler:
                     provider_user = result.scalars().first()
                     
                     if not provider_user:
-                        print(f"   ⚠️  Provider user {provider_id} not found")
+                        logger.warning(f"   ⚠️  Provider user {provider_id} not found")
                         return
                     
                     # Get provider profile for phone
@@ -129,9 +129,9 @@ class NotificationEventHandler:
                                 subject=email_subject,
                                 body=email_body
                             )
-                            print(f"   ✅ Email sent to {provider_user.email}")
+                            logger.info(f"   ✅ Email sent to {provider_user.email}")
                         except Exception as e:
-                            print(f"   ⚠️  Email send failed: {str(e)}")
+                            logger.warning(f"   ⚠️  Email send failed: {str(e)}")
                     
                     # Send SMS if phone available
                     if provider_profile and provider_profile.phone:
@@ -143,9 +143,9 @@ class NotificationEventHandler:
                                     phone_number=provider_profile.phone,
                                     message=sms_message
                                 )
-                                print(f"   ✅ SMS sent to {provider_profile.phone}")
+                                logger.info(f"   ✅ SMS sent to {provider_profile.phone}")
                             except Exception as e:
-                                print(f"   ⚠️  SMS send failed: {str(e)}")
+                                logger.warning(f"   ⚠️  SMS send failed: {str(e)}")
                     
                     # Send WhatsApp if phone available
                     if provider_profile and provider_profile.phone:
@@ -157,18 +157,18 @@ class NotificationEventHandler:
                                     phone_number=provider_profile.phone,
                                     message=wa_message
                                 )
-                                print(f"   ✅ WhatsApp sent to {provider_profile.phone}")
+                                logger.info(f"   ✅ WhatsApp sent to {provider_profile.phone}")
                             except Exception as e:
-                                print(f"   ⚠️  WhatsApp send failed: {str(e)}")
+                                logger.warning(f"   ⚠️  WhatsApp send failed: {str(e)}")
                     
-                    print(f"   ✅ All notifications sent for provider {provider_id}")
+                    logger.info(f"   ✅ All notifications sent for provider {provider_id}")
                     
                 except Exception as inner_e:
-                    print(f"   ❌ Error processing booking created: {str(inner_e)}")
+                    logger.error(f"   ❌ Error processing booking created: {str(inner_e)}")
                     raise
         
         except Exception as e:
-            print(f"❌ Error in on_booking_created: {str(e)}")
+            logger.error(f"❌ Error in on_booking_created: {str(e)}")
     
     async def on_booking_accepted(self, payload: EventPayload) -> None:
         """
@@ -182,7 +182,7 @@ class NotificationEventHandler:
             service_name = booking_data.get("service_name", "Unknown")
             booking_id = booking_data.get("booking_id")
             
-            print(f"📬 Processing BOOKING_ACCEPTED for client {client_id}")
+            logger.info(f"📬 Processing BOOKING_ACCEPTED for client {client_id}")
             
             # Get database session
             async for db in get_db_async():
@@ -194,7 +194,7 @@ class NotificationEventHandler:
                     client_user = result.scalars().first()
                     
                     if not client_user:
-                        print(f"   ⚠️  Client user {client_id} not found")
+                        logger.warning(f"   ⚠️  Client user {client_id} not found")
                         return
                     
                     # Get provider user for name
@@ -244,18 +244,18 @@ class NotificationEventHandler:
                                 subject=email_subject,
                                 body=email_body
                             )
-                            print(f"   ✅ Email sent to {client_user.email}")
+                            logger.info(f"   ✅ Email sent to {client_user.email}")
                         except Exception as e:
-                            print(f"   ⚠️  Email send failed: {str(e)}")
+                            logger.warning(f"   ⚠️  Email send failed: {str(e)}")
                     
-                    print(f"   ✅ All notifications sent for client {client_id}")
+                    logger.info(f"   ✅ All notifications sent for client {client_id}")
                     
                 except Exception as inner_e:
-                    print(f"   ❌ Error processing booking accepted: {str(inner_e)}")
+                    logger.error(f"   ❌ Error processing booking accepted: {str(inner_e)}")
                     raise
         
         except Exception as e:
-            print(f"❌ Error in on_booking_accepted: {str(e)}")
+            logger.error(f"❌ Error in on_booking_accepted: {str(e)}")
     
     async def on_booking_rejected(self, payload: EventPayload) -> None:
         """
@@ -270,7 +270,7 @@ class NotificationEventHandler:
             booking_id = booking_data.get("booking_id")
             rejection_reason = booking_data.get("rejection_reason", "No disponible en ese momento")
             
-            print(f"📬 Processing BOOKING_REJECTED for client {client_id}")
+            logger.info(f"📬 Processing BOOKING_REJECTED for client {client_id}")
             
             # Get database session
             async for db in get_db_async():
@@ -282,7 +282,7 @@ class NotificationEventHandler:
                     client_user = result.scalars().first()
                     
                     if not client_user:
-                        print(f"   ⚠️  Client user {client_id} not found")
+                        logger.warning(f"   ⚠️  Client user {client_id} not found")
                         return
                     
                     # Get provider user for name
@@ -329,18 +329,18 @@ class NotificationEventHandler:
                                 subject=email_subject,
                                 body=email_body
                             )
-                            print(f"   ✅ Email sent to {client_user.email}")
+                            logger.info(f"   ✅ Email sent to {client_user.email}")
                         except Exception as e:
-                            print(f"   ⚠️  Email send failed: {str(e)}")
+                            logger.warning(f"   ⚠️  Email send failed: {str(e)}")
                     
-                    print(f"   ✅ All notifications sent for client {client_id}")
+                    logger.info(f"   ✅ All notifications sent for client {client_id}")
                     
                 except Exception as inner_e:
-                    print(f"   ❌ Error processing booking rejected: {str(inner_e)}")
+                    logger.error(f"   ❌ Error processing booking rejected: {str(inner_e)}")
                     raise
         
         except Exception as e:
-            print(f"❌ Error in on_booking_rejected: {str(e)}")
+            logger.error(f"❌ Error in on_booking_rejected: {str(e)}")
 
 
 # Global handler instance

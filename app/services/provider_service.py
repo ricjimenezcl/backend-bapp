@@ -56,26 +56,26 @@ class ProviderService:
             avatar_binary = None
             if provider_data.avatar:
                 try:
-                    print(f"🔧 Procesando avatar. Longitud base64: {len(provider_data.avatar)}")
+                    logger.info(f"🔧 Procesando avatar. Longitud base64: {len(provider_data.avatar)}")
                     
                     if provider_data.avatar.startswith('data:image'):
                         base64_data = provider_data.avatar.split(',', 1)[1]
-                        print("📷 Avatar es data URL, extraído base64")
+                        logger.info("📷 Avatar es data URL, extraído base64")
                     else:
                         base64_data = provider_data.avatar
-                        print("📷 Avatar es base64 puro")
+                        logger.info("📷 Avatar es base64 puro")
                     
                     padding = 4 - (len(base64_data) % 4)
                     if padding != 4:
                         base64_data += '=' * padding
-                        print(f"🔧 Padding agregado: {padding} caracteres")
+                        logger.info(f"🔧 Padding agregado: {padding} caracteres")
                     
                     avatar_binary = base64.b64decode(base64_data)
-                    print(f"✅ Avatar decodificado a binario. Tamaño: {len(avatar_binary)} bytes")
+                    logger.info(f"✅ Avatar decodificado a binario. Tamaño: {len(avatar_binary)} bytes")
                     
                 except Exception as e:
-                    print(f"❌ Error procesando avatar: {e}")
-                    print(f"❌ Traceback: {traceback.format_exc()}")
+                    logger.error(f"❌ Error procesando avatar: {e}")
+                    logger.error(f"❌ Traceback: {traceback.format_exc()}")
                     avatar_binary = None
 
             # Crear perfil de PROVEEDOR
@@ -88,14 +88,14 @@ class ProviderService:
                 avatar=avatar_binary
             )
 
-            print(f"🔧 Creando provider con user_id: {user.id}")
+            logger.info(f"🔧 Creando provider con user_id: {user.id}")
             self.db.add(provider)
             await self.db.commit()
             
             # Obtener el provider con una consulta separada en lugar de refresh
             await self.db.refresh(provider)
             
-            print(f"✅ Provider creado exitosamente. ID: {provider.id}")
+            logger.info(f"✅ Provider creado exitosamente. ID: {provider.id}")
 
             return {
                 "user_id": user.id,
@@ -110,8 +110,8 @@ class ProviderService:
             raise
         except Exception as e:
             await self.db.rollback()
-            print(f"❌ Error en create_provider: {str(e)}")
-            print(f"❌ Traceback completo: {traceback.format_exc()}")
+            logger.error(f"❌ Error en create_provider: {str(e)}")
+            logger.error(f"❌ Traceback completo: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Provider registration failed: {str(e)}"
@@ -271,11 +271,11 @@ class ProviderService:
                 
                 # Guardar URL en la BD (VARCHAR 500)
                 provider.avatar = upload_result.secure_url
-                print(f"✅ Avatar subido a Cloudinary: {provider.avatar}")
+                logger.info(f"✅ Avatar subido a Cloudinary: {provider.avatar}")
             except Exception as e:
-                print(f"❌ Error subiendo avatar a Cloudinary: {e}")
+                logger.error(f"❌ Error subiendo avatar a Cloudinary: {e}")
                 import traceback
-                print(f"❌ Traceback: {traceback.format_exc()}")
+                logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
         # Validar lógica de campos únicos (RUN) si se actualiza
         if update_data.run and update_data.run != provider.run:

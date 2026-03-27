@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     # PostGIS — Geolocalización avanzada
     # False = Haversine SQL (cualquier PostgreSQL, sin extensión)
     # True  = ST_DWithin + GiST (requiere migrations/003_postgis_geolocation.sql)
-    USE_POSTGIS: bool = Field(default=False)
+    USE_POSTGIS: bool = Field(default=True)
 
     # CORS - Maneja tanto string JSON como lista
     ALLOWED_ORIGINS: List[str] = Field(default=[

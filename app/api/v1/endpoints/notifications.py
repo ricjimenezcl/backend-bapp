@@ -22,14 +22,14 @@ async def get_notifications(
     """
     cached = get_notifications_cache(current_user.id)
     if cached and isinstance(cached, list):
-        print(f"✅ [CACHE] Notificaciones hit ({current_user.id})")
+        logger.info(f"✅ [CACHE] Notificaciones hit ({current_user.id})")
         return cached
     service = NotificationService(db)
     notifications, _ = await service.get_user_notifications(current_user.id, skip=0, limit=50)
     # Serialize to dicts before caching so Redis can store them as JSON
     serialized = [NotificationSchema.model_validate(n).model_dump(mode="json") for n in notifications]
     set_notifications_cache(current_user.id, serialized)
-    print(f"✅ [CACHE] Guardado notificaciones ({current_user.id})")
+    logger.info(f"✅ [CACHE] Guardado notificaciones ({current_user.id})")
     return notifications
 
 @router.patch("/{notification_id}/read", response_model=NotificationSchema)

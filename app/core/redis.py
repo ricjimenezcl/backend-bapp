@@ -1,33 +1,57 @@
-import os
+"""
+Sync Redis helpers — thin wrappers used by endpoints that predate the async client.
+
+Design:
+- Lazy initialization: the connection is not opened at import time.
+- Respects REDIS_ENABLED: if False, all operations are no-ops that return safe defaults.
+- Builds URL from REDIS_URL env var; falls back to REDIS_HOST/PORT/DB.
+- All errors are caught and logged — callers never see a Redis exception.
+"""
+
 import json
 import logging
 from typing import Any, Optional
 
-import redis
-
-# --------------------------------------------------
-# Configuración básica
-# --------------------------------------------------
-
 from app.core.config import settings
 
-REDIS_URL = settings.REDIS_URL if hasattr(settings, 'REDIS_URL') else 'redis://localhost:6379/0'
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------
-# Logger
+# Internal state
 # --------------------------------------------------
 
-logger = logging.getLogger("redis")
-logger.setLevel(logging.INFO)
+_redis = None  # lazily initialized
+
+
+def _get_client():
+    """Return the sync Redis client, initializing it on first call."""
+    global _redis
+
+    if not settings.REDIS_ENABLED:
+        return None
+
+    if _redis is not None:
+        return _redis
+
+    try:
+        import redis as _redis_lib
+
+        url = settings.REDIS_URL
+        if not url:
+            pwd = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
+            url = f"redis://{pwd}{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}"
+
+        _redis = _redis_lib.Redis.from_url(url, decode_responses=True, socket_connect_timeout=3)
+        logger.info("Sync Redis client initialized")
+    except Exception as exc:
+        logger.error(f"Sync Redis init failed: {exc}")
+        _redis = None
+
+    return _redis
+
 
 # --------------------------------------------------
-# Cliente Redis (singleton)
-# --------------------------------------------------
-
-redis = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-
-# --------------------------------------------------
-# Helpers generales
+# Serialization
 # --------------------------------------------------
 
 def _serialize(value: Any) -> str:
@@ -48,99 +72,117 @@ def _deserialize(value: Optional[str]) -> Optional[Any]:
 # --------------------------------------------------
 
 def cache_set(key: str, value: Any, ttl: int = 60) -> bool:
-    """
-    Guarda un valor en cache con TTL (segundos)
-    """
+    """Store a value in cache with TTL (seconds). Returns False on error."""
+    client = _get_client()
+    if client is None:
+        return False
     try:
-        redis.set(key, _serialize(value), ex=ttl)
+        client.set(key, _serialize(value), ex=ttl)
         return True
-    except Exception as e:
-        logger.error(f"Redis SET error [{key}]: {e}")
+    except Exception as exc:
+        logger.error(f"Redis SET error [{key}]: {exc}")
         return False
 
 
 def cache_get(key: str) -> Optional[Any]:
-    """
-    Obtiene un valor desde cache
-    """
+    """Retrieve a value from cache. Returns None on miss or error."""
+    client = _get_client()
+    if client is None:
+        return None
     try:
-        value = redis.get(key)
-        return _deserialize(value)
-    except Exception as e:
-        logger.error(f"Redis GET error [{key}]: {e}")
+        return _deserialize(client.get(key))
+    except Exception as exc:
+        logger.error(f"Redis GET error [{key}]: {exc}")
         return None
 
+
 def cache_delete(key: str) -> bool:
-    """
-    Elimina un valor del cache
-    """
+    """Delete a key from cache."""
+    client = _get_client()
+    if client is None:
+        return False
     try:
-        redis.delete(key)
+        client.delete(key)
         return True
-    except Exception as e:
-        logger.error(f"Redis DEL error [{key}]: {e}")
+    except Exception as exc:
+        logger.error(f"Redis DEL error [{key}]: {exc}")
         return False
 
+
 def cache_publish(channel: str, payload: Any) -> bool:
-    """
-    Publica un mensaje en un canal
-    """
-    try:
-        redis.publish(channel, _serialize(payload))
-        return True
-    except Exception as e:
-        logger.error(f"Redis PUBLISH error [{channel}]: {e}")
+    """Publish a message to a channel."""
+    client = _get_client()
+    if client is None:
         return False
+    try:
+        client.publish(channel, _serialize(payload))
+        return True
+    except Exception as exc:
+        logger.error(f"Redis PUBLISH error [{channel}]: {exc}")
+        return False
+
+
+# --------------------------------------------------
+# Rate limiting
+# --------------------------------------------------
 
 def rate_limit(key: str, limit: int, window_seconds: int) -> bool:
     """
-    Retorna True si está permitido, False si excede el límite
+    Sliding-window rate limiter.
+    Returns True if the request is allowed, False if the limit is exceeded.
+    Fails open (returns True) on Redis errors.
     """
+    client = _get_client()
+    if client is None:
+        return True  # Redis disabled → allow all
     try:
-        current = redis.incr(key)
+        current = client.incr(key)
         if current == 1:
-            redis.expire(key, window_seconds)
+            client.expire(key, window_seconds)
         return current <= limit
-    except Exception as e:
-        logger.error(f"Redis RATE LIMIT error [{key}]: {e}")
+    except Exception as exc:
+        logger.error(f"Redis RATE LIMIT error [{key}]: {exc}")
         return True  # fail-open
 
 
 # --------------------------------------------------
-# Locks (evitar doble reserva)
+# Distributed locks
 # --------------------------------------------------
 
 def acquire_lock(key: str, ttl: int = 30) -> bool:
-    """
-    Intenta adquirir un lock distribuido
-    """
+    """Acquire a distributed lock. Returns False on error or if already held."""
+    client = _get_client()
+    if client is None:
+        return True  # Redis disabled → allow operation
     try:
-        return redis.set(key, "1", nx=True, ex=ttl) is True
-    except Exception as e:
-        logger.error(f"Redis LOCK error [{key}]: {e}")
+        return client.set(key, "1", nx=True, ex=ttl) is True
+    except Exception as exc:
+        logger.error(f"Redis LOCK error [{key}]: {exc}")
         return False
 
 
 def release_lock(key: str) -> None:
-    """
-    Libera un lock
-    """
+    """Release a distributed lock."""
+    client = _get_client()
+    if client is None:
+        return
     try:
-        redis.delete(key)
-    except Exception as e:
-        logger.error(f"Redis UNLOCK error [{key}]: {e}")
+        client.delete(key)
+    except Exception as exc:
+        logger.error(f"Redis UNLOCK error [{key}]: {exc}")
 
 
 # --------------------------------------------------
-# Healthcheck
+# Health check
 # --------------------------------------------------
 
 def redis_healthcheck() -> bool:
-    """
-    Verifica si Redis está operativo
-    """
+    """Return True if Redis is reachable."""
+    client = _get_client()
+    if client is None:
+        return False
     try:
-        redis.set("healthcheck", "ok", ex=5)
-        return redis.get("healthcheck") == "ok"
+        client.set("healthcheck", "ok", ex=5)
+        return client.get("healthcheck") == "ok"
     except Exception:
         return False

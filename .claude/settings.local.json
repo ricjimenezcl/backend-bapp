@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /d/bapp/ionic_v8/bappsearch/pre-produccion/backend/app -type f -name \"*.py\" -exec wc -l {} +)",
+      "Bash(grep -r \"CREATE INDEX\\\\|ALTER TABLE\" /d/bapp/ionic_v8/bappsearch/pre-produccion/backend/migrations/ --include=*.sql)",
+      "Bash(wc -l /d/bapp/ionic_v8/bappsearch/pre-produccion/backend/app/api/v1/endpoints/*.py)",
+      "Bash(grep -r \"class.*Repository\\\\|class.*Factory\" /d/bapp/ionic_v8/bappsearch/pre-produccion/backend/app/ --include=*.py)"
+    ]
+  }
+}

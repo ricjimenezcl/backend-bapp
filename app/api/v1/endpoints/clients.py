@@ -134,14 +134,14 @@ async def update_client_me(
                 )
 
                 profile.avatar = upload_result.secure_url
-                print(f"✅ Avatar de cliente subido a Cloudinary: {profile.avatar}")
+                logger.info(f"✅ Avatar de cliente subido a Cloudinary: {profile.avatar}")
 
             except HTTPException:
                 raise
             except Exception as e:
                 import traceback
-                print(f"❌ Error subiendo avatar de cliente a Cloudinary: {e}")
-                print(f"❌ Traceback: {traceback.format_exc()}")
+                logger.error(f"❌ Error subiendo avatar de cliente a Cloudinary: {e}")
+                logger.error(f"❌ Traceback: {traceback.format_exc()}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Error uploading avatar"

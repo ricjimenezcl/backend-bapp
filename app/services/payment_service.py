@@ -104,7 +104,7 @@ class PaymentService:
     async def handle_webhook(self, payload: dict):
         """Manejar webhooks de notificación de pagos"""
         # Implementar lógica de webhook
-        print(f"Webhook received: {payload}")
+        logger.info(f"Webhook received: {payload}")
         
         # Actualizar estado del pago en la base de datos
         # Enviar notificaciones, etc.

@@ -167,7 +167,7 @@ async def verify_google_play_purchase(
                 product=product
             )
         except Exception as email_error:
-            print(f"Failed to send confirmation email: {email_error}")
+            logger.error(f"Failed to send confirmation email: {email_error}")
             # Don't fail the transaction if email fails
         
         # Acknowledge purchase (required by Google Play)
@@ -331,7 +331,7 @@ async def verify_apple_iap_purchase(
                 product=product
             )
         except Exception as email_error:
-            print(f"Failed to send confirmation email: {email_error}")
+            logger.error(f"Failed to send confirmation email: {email_error}")
             # Don't fail the transaction if email fails
         
         return PaymentVerificationResponse(
@@ -499,7 +499,7 @@ async def verify_transbank_payment(
                 product=product
             )
         except Exception as email_error:
-            print(f"Failed to send confirmation email: {email_error}")
+            logger.error(f"Failed to send confirmation email: {email_error}")
 
         return PaymentVerificationResponse(
             success=True,
@@ -766,7 +766,7 @@ async def mercadopago_webhook(
         payment_data = payment_response.get("response", {})
     except Exception as e:
         # No devolver 500: MP reintentaría indefinidamente
-        print(f"[MP webhook] Error fetching payment {payment_id}: {e}")
+        logger.error(f"[MP webhook] Error fetching payment {payment_id}: {e}")
         return {"status": "error", "reason": str(e)}
 
     mp_status = payment_data.get("status")           # approved | rejected | pending
@@ -785,7 +785,7 @@ async def mercadopago_webhook(
         ).first()
 
     if not transaction:
-        print(f"[MP webhook] No transaction found for preference_id={preference_id}")
+        logger.info(f"[MP webhook] No transaction found for preference_id={preference_id}")
         return {"status": "not_found", "reason": "transaction not found"}
 
     # --- Idempotencia: ya procesado ---
@@ -830,6 +830,6 @@ async def mercadopago_webhook(
                     product=product
                 )
         except Exception as email_error:
-            print(f"[MP webhook] Email error: {email_error}")
+            logger.error(f"[MP webhook] Email error: {email_error}")
 
     return {"status": "processed", "transaction_id": transaction.id}

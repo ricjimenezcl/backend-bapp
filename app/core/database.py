@@ -5,13 +5,15 @@ import os
 from app.core.config import settings
 
 # Async engine for FastAPI
+# Pool sizing for ~60k users: 12k DAU → ~500 concurrent requests at peak.
+# pool_size=20 + max_overflow=20 = 40 max connections. Adjust based on DB plan.
 engine_async = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     future=True,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=5,
+    pool_size=20,
+    max_overflow=20,
     pool_timeout=30,
     pool_recycle=1800
 )
@@ -54,8 +56,8 @@ def get_db():
             sync_url,
             echo=False,
             pool_pre_ping=True,
-            pool_size=3,
-            max_overflow=3,
+            pool_size=10,
+            max_overflow=10,
             pool_recycle=1800
         )
     
