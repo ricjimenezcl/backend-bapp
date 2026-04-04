@@ -285,7 +285,6 @@ async def get_nearby_providers_by_service_id(
     )
     return providers
 
-
 @router.get("/geocoding/search")
 async def geocoding_search(
     q: str = Query(..., min_length=3, max_length=200, description="Dirección o lugar"),
