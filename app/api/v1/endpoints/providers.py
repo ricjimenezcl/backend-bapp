@@ -13,10 +13,10 @@ import cloudinary.uploader
 from app.core.database import get_db_async
 from app.models.provider import Provider, ServiceProvider
 from app.models.user import User
-from app.schemas.provider import (
 import logging
 logger = logging.getLogger(__name__)
 
+from app.schemas.provider import (
     ServiceProviderResponse,
     ServiceProviderCreateRequest,
     ServiceProviderCreateResponse,
