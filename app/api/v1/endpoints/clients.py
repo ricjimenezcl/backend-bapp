@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -8,6 +10,8 @@ from pydantic import BaseModel
 from app.core.database import get_db_async
 from app.models.user import User, UserProfile
 from app.dependencies import get_current_active_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
