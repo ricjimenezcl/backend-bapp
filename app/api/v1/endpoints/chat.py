@@ -3,10 +3,15 @@ Chat API Endpoints for FASE 2
 Handles all chat-related HTTP requests
 """
 
+import logging
+import traceback
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db_async
 from app.models.user import User, UserProfile
