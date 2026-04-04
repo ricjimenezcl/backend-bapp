@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 _redis = None  # lazily initialized
 
 
+class _LazyRedis:
+    """Proxy that forwards all attribute access to the lazily-initialized sync client."""
+    def __getattr__(self, name):
+        client = _get_client()
+        if client is None:
+            raise RuntimeError("Redis is not available (REDIS_ENABLED=False or connection failed)")
+        return getattr(client, name)
+
+
+redis = _LazyRedis()
+
+
 def _get_client():
     """Return the sync Redis client, initializing it on first call."""
     global _redis
