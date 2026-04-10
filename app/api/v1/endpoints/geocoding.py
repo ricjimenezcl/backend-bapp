@@ -101,6 +101,54 @@ async def get_static_map(
         )
 
 
+@router.get("/reverse")
+async def reverse_geocode(
+    lat: float = Query(..., description="Latitud"),
+    lon: float = Query(..., description="Longitud"),
+    format: Optional[str] = Query("json"),
+):
+    """
+    Proxy endpoint para geocodificación inversa de Geoapify.
+    Convierte coordenadas a dirección formateada.
+    """
+    if not settings.GEOAPIFY_API_KEY:
+        logger.error("GEOAPIFY_API_KEY not configured")
+        raise HTTPException(status_code=500, detail="Geoapify API key not configured on server")
+
+    geoapify_url = "https://api.geoapify.com/v1/geocode/reverse"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "lang": "es",
+        "apiKey": settings.GEOAPIFY_API_KEY,
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                geoapify_url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Geoapify reverse error {response.status}: {error_text}")
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Geoapify API error: {error_text}",
+                    )
+                data = await response.json()
+                return data
+    except aiohttp.ClientError as e:
+        logger.error(f"Network error calling Geoapify reverse: {str(e)}")
+        raise HTTPException(status_code=503, detail="Error connecting to geocoding service")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Unexpected error in reverse geocoding proxy")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.get("/health")
 async def geocoding_health():
     """
