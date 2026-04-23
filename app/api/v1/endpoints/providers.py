@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Path, File, UploadFile, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Path, File, UploadFile, Form, Body, Request
 from fastapi import BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -287,6 +287,7 @@ async def get_nearby_providers_by_service_id(
 
 @router.get("/geocoding/search")
 async def geocoding_search(
+    request: Request,
     q: str = Query(..., min_length=3, max_length=200, description="Dirección o lugar"),
     country: str = Query("cl", description="Código de país ISO 3166-1 alpha-2")
 ):
@@ -302,14 +303,7 @@ async def geocoding_search(
     import aiohttp as _aiohttp
     from app.core.redis import cache_get, cache_set
 
-    # Rate limit: 1 req/s global hacia Nominatim (política de uso aceptable OSM)
-    if not rate_limit("rate:nominatim:global", 1, 1):
-        raise HTTPException(
-            status_code=429,
-            detail="Geocoding rate limit. Reintenta en 1 segundo."
-        )
-
-    # Cache key: hash SHA-256 del query normalizado + país
+    # ── Cache check PRIMERO — los hits nunca tocan rate limit ni Nominatim ──
     q_normalized = q.lower().strip()
     key_hash = hashlib.sha256(q_normalized.encode()).hexdigest()[:20]
     cache_key = f"geo:nominatim:{key_hash}:{country}"
@@ -317,6 +311,22 @@ async def geocoding_search(
     cached = cache_get(cache_key)
     if cached:
         return {"source": "cache", "results": cached}
+
+    # ── Rate limit solo en cache misses (llamadas reales a Nominatim) ────────
+    # Por IP: máx 3 búsquedas nuevas/s por usuario (no bloquea a otros usuarios)
+    client_ip = (request.client.host if request.client else "unknown").replace(":", "_")
+    if not rate_limit(f"rate:geo:ip:{client_ip}", 3, 1):
+        raise HTTPException(
+            status_code=429,
+            detail="Geocoding rate limit. Reintenta en 1 segundo."
+        )
+    # Global: respetar política de Nominatim desde nuestro servidor (1 req/s por IP pública)
+    # Relajado a 5 porque con cache 7 días los misses reales son infrecuentes
+    if not rate_limit("rate:nominatim:global", 5, 1):
+        raise HTTPException(
+            status_code=429,
+            detail="Servicio de geocoding saturado. Reintenta en 1 segundo."
+        )
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
