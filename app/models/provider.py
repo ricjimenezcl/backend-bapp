@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, SmallInteger, String, DateTime, Time, Text, ForeignKey, DECIMAL, Boolean, Enum
+from sqlalchemy import Column, Integer, SmallInteger, String, DateTime, Time, Text, ForeignKey, DECIMAL, Boolean, Enum, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -69,6 +69,10 @@ class ServiceProvider(Base):
     total_reviews = Column(Integer, default=0)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Fotos del portafolio de este servicio específico
+    # Formato: [{"id": "abc123", "url": "https://...", "public_id": "bappsearch/..."}]
+    portfolio_images = Column(JSON, nullable=True, default=None)
 
     # Relationships - FIXED: Use lazy='joined' for eager loading
     provider = relationship("Provider", back_populates="service_providers", lazy='joined')
