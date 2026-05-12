@@ -527,7 +527,7 @@ async def get_provider_detailed(
         if viewer:
             from app.models.service_view_event import ServiceViewEvent
             import traceback as _tb
-            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
             # Obtener primer servicio del proveedor (puede ser None)
             from app.models.provider import ServiceProvider as _SP
             sp_result = await db.execute(
