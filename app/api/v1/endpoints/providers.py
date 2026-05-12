@@ -526,30 +526,35 @@ async def get_provider_detailed(
             from app.models.service_view_event import ServiceViewEvent
             from datetime import timezone
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            # Obtener primer servicio del proveedor para el event
+            # Obtener primer servicio del proveedor (puede ser None)
             from app.models.provider import ServiceProvider as _SP
             sp_result = await db.execute(
                 select(_SP.id).where(_SP.provider_id == provider_id).limit(1)
             )
             first_sp_id = sp_result.scalar_one_or_none()
-            if first_sp_id:
-                existing = await db.execute(
-                    select(ServiceViewEvent.id).where(
-                        ServiceViewEvent.provider_id == provider_id,
-                        ServiceViewEvent.service_provider_id == first_sp_id,
-                        ServiceViewEvent.viewer_user_id == viewer.id,
-                        ServiceViewEvent.viewed_at >= today_start,
-                    )
+            if not first_sp_id:
+                logger.warning(f"⚠️ [tracking] provider={provider_id} no tiene servicios en service_providers, se insertará sin service_provider_id")
+            # Deduplicar: máximo 1 evento por usuario por proveedor por día
+            existing = await db.execute(
+                select(ServiceViewEvent.id).where(
+                    ServiceViewEvent.provider_id == provider_id,
+                    ServiceViewEvent.viewer_user_id == viewer.id,
+                    ServiceViewEvent.viewed_at >= today_start,
                 )
-                if not existing.scalar_one_or_none():
-                    evt = ServiceViewEvent(
-                        provider_id=provider_id,
-                        service_provider_id=first_sp_id,
-                        viewer_user_id=viewer.id,
-                    )
-                    db.add(evt)
-                    await db.commit()
-                    logger.info(f"✅ ServiceViewEvent registrado: provider={provider_id} viewer={viewer.id}")
+            )
+            if not existing.scalar_one_or_none():
+                evt = ServiceViewEvent(
+                    provider_id=provider_id,
+                    service_provider_id=first_sp_id,  # puede ser None
+                    viewer_user_id=viewer.id,
+                )
+                db.add(evt)
+                await db.commit()
+                logger.info(f"✅ ServiceViewEvent registrado: provider={provider_id} viewer={viewer.id} sp={first_sp_id}")
+            else:
+                logger.info(f"[tracking] visita ya registrada hoy: provider={provider_id} viewer={viewer.id}")
+        else:
+            logger.info(f"[tracking] visita anónima a provider={provider_id}")
     except Exception as e:
         logger.warning(f"⚠️ Error registrando visita en /detailed: {e}")
 

@@ -54,6 +54,17 @@ async def lifespan(app: FastAPI):
         _startup_logger.warning(f"Database initialization error: {type(e).__name__}: {e}")
         _startup_logger.warning("Continuing without database tables...")
 
+    # Migration: make service_view_events.service_provider_id nullable (idempotent)
+    try:
+        from sqlalchemy import text as _text
+        async with engine_async.begin() as conn:
+            await conn.execute(_text(
+                "ALTER TABLE service_view_events ALTER COLUMN service_provider_id DROP NOT NULL"
+            ))
+        _startup_logger.info("Migration: service_provider_id is now nullable")
+    except Exception as e:
+        _startup_logger.info(f"Migration service_provider_id skip: {type(e).__name__}: {e}")
+
     # Run migration 014: align notifications table columns (idempotent)
     try:
         import pathlib

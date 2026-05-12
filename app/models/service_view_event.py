@@ -23,8 +23,8 @@ class ServiceViewEvent(Base):
     id                  = Column(Integer, primary_key=True, index=True)
     # Proveedor dueño del servicio visitado
     provider_id         = Column(Integer, ForeignKey("providers.id",  ondelete="CASCADE"), nullable=False, index=True)
-    # Publicación de servicio específica que fue visitada
-    service_provider_id = Column(Integer, ForeignKey("service_providers.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Publicación de servicio específica que fue visitada (nullable: puede no haber servicios aún)
+    service_provider_id = Column(Integer, ForeignKey("service_providers.id", ondelete="CASCADE"), nullable=True, index=True)
     # Cliente que visitó (NULL = visita anónima / no autenticada)
     viewer_user_id      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     viewed_at           = Column(TIMESTAMP, server_default=func.now(), nullable=False, index=True)
