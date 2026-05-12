@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
 from sqlalchemy import or_, and_, update as sa_update, text
 from typing import List, Optional
+from datetime import datetime, timezone
 import base64
 import cloudinary.uploader
 
@@ -525,7 +526,6 @@ async def get_provider_detailed(
         logger.info(f"[tracking] /detailed provider={provider_id} viewer={'id='+str(viewer.id) if viewer else 'NONE (anónimo)'}")
         if viewer:
             from app.models.service_view_event import ServiceViewEvent
-            from datetime import timezone
             import traceback as _tb
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             # Obtener primer servicio del proveedor (puede ser None)
