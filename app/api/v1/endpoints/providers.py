@@ -511,7 +511,8 @@ async def get_provider(
 @router.get("/{provider_id}/detailed")
 async def get_provider_detailed(
     provider_id: int,
-    db: AsyncSession = Depends(get_db_async)
+    db: AsyncSession = Depends(get_db_async),
+    viewer: User = Depends(get_viewer_user)
 ):
     """
     Obtener información detallada del proveedor CON todos sus servicios asociados.
@@ -631,6 +632,36 @@ async def get_provider_detailed(
         }
         
         logger.info(f"✅ Respuesta detallada preparada para provider {provider_id}")
+
+        # --- Registrar visita (fail-open) ---
+        try:
+            from app.infra.redis.cache import incr_service_views
+            incr_service_views(provider_id)
+            if viewer and services:
+                from app.models.service_view_event import ServiceViewEvent
+                from datetime import datetime, timezone
+                today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                # Registrar solo el primer servicio (representa la visita al perfil)
+                first_service = services[0]
+                existing = await db.execute(
+                    select(ServiceViewEvent.id).where(
+                        ServiceViewEvent.provider_id == provider_id,
+                        ServiceViewEvent.service_provider_id == first_service.id,
+                        ServiceViewEvent.viewer_user_id == viewer.id,
+                        ServiceViewEvent.viewed_at >= today_start,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    evt = ServiceViewEvent(
+                        provider_id=provider_id,
+                        service_provider_id=first_service.id,
+                        viewer_user_id=viewer.id,
+                    )
+                    db.add(evt)
+                    await db.commit()
+        except Exception:
+            pass  # fail-open: no bloquear respuesta por error de tracking
+
         # --- Cache the result ---
         try:
             import json
