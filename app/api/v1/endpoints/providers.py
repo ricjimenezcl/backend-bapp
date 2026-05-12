@@ -518,6 +518,41 @@ async def get_provider_detailed(
     Obtener información detallada del proveedor CON todos sus servicios asociados.
     Retorna: Provider info + List of services + Reviews count
     """
+    # --- Registrar visita antes del cache (fail-open) ---
+    try:
+        from app.infra.redis.cache import incr_service_views
+        incr_service_views(provider_id)
+        if viewer:
+            from app.models.service_view_event import ServiceViewEvent
+            from datetime import timezone
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            # Obtener primer servicio del proveedor para el event
+            from app.models.provider import ServiceProvider as _SP
+            sp_result = await db.execute(
+                select(_SP.id).where(_SP.provider_id == provider_id).limit(1)
+            )
+            first_sp_id = sp_result.scalar_one_or_none()
+            if first_sp_id:
+                existing = await db.execute(
+                    select(ServiceViewEvent.id).where(
+                        ServiceViewEvent.provider_id == provider_id,
+                        ServiceViewEvent.service_provider_id == first_sp_id,
+                        ServiceViewEvent.viewer_user_id == viewer.id,
+                        ServiceViewEvent.viewed_at >= today_start,
+                    )
+                )
+                if not existing.scalar_one_or_none():
+                    evt = ServiceViewEvent(
+                        provider_id=provider_id,
+                        service_provider_id=first_sp_id,
+                        viewer_user_id=viewer.id,
+                    )
+                    db.add(evt)
+                    await db.commit()
+                    logger.info(f"✅ ServiceViewEvent registrado: provider={provider_id} viewer={viewer.id}")
+    except Exception as e:
+        logger.warning(f"⚠️ Error registrando visita en /detailed: {e}")
+
     # --- Cache first ---
     cached = get_provider_detailed_cache(provider_id)
     if cached:
@@ -632,35 +667,6 @@ async def get_provider_detailed(
         }
         
         logger.info(f"✅ Respuesta detallada preparada para provider {provider_id}")
-
-        # --- Registrar visita (fail-open) ---
-        try:
-            from app.infra.redis.cache import incr_service_views
-            incr_service_views(provider_id)
-            if viewer and services:
-                from app.models.service_view_event import ServiceViewEvent
-                from datetime import datetime, timezone
-                today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-                # Registrar solo el primer servicio (representa la visita al perfil)
-                first_service = services[0]
-                existing = await db.execute(
-                    select(ServiceViewEvent.id).where(
-                        ServiceViewEvent.provider_id == provider_id,
-                        ServiceViewEvent.service_provider_id == first_service.id,
-                        ServiceViewEvent.viewer_user_id == viewer.id,
-                        ServiceViewEvent.viewed_at >= today_start,
-                    )
-                )
-                if not existing.scalar_one_or_none():
-                    evt = ServiceViewEvent(
-                        provider_id=provider_id,
-                        service_provider_id=first_service.id,
-                        viewer_user_id=viewer.id,
-                    )
-                    db.add(evt)
-                    await db.commit()
-        except Exception:
-            pass  # fail-open: no bloquear respuesta por error de tracking
 
         # --- Cache the result ---
         try:

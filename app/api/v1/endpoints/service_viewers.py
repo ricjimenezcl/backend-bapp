@@ -11,7 +11,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, func as sqlfunc, distinct
+from sqlalchemy import and_, func as sqlfunc, distinct, text
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
 
@@ -137,56 +137,43 @@ async def _build_clients(
 ) -> List[ServiceViewerClient]:
     """
     Lee los últimos 90 días de ServiceViewEvent con user autenticado.
-    Por cada usuario retorna su visita más reciente (deduplicado por user).
+    Por cada usuario retorna su visita más reciente (DISTINCT ON viewer_user_id).
     """
     cutoff = datetime.utcnow() - timedelta(days=90)
 
-    # Subconsulta: última visita de cada usuario a cualquier servicio del proveedor
-    latest_per_user = (
-        select(
-            ServiceViewEvent.viewer_user_id,
-            sqlfunc.max(ServiceViewEvent.viewed_at).label("last_viewed"),
-        )
-        .where(
-            and_(
-                ServiceViewEvent.provider_id == provider_id,
-                ServiceViewEvent.viewer_user_id.isnot(None),
-                ServiceViewEvent.viewed_at >= cutoff,
-            )
-        )
-        .group_by(ServiceViewEvent.viewer_user_id)
-        .subquery()
+    # Diagnóstico: cuántos eventos hay en total
+    count_result = await db.execute(
+        text("SELECT COUNT(*) FROM service_view_events WHERE provider_id = :pid AND viewer_user_id IS NOT NULL"),
+        {"pid": provider_id}
     )
+    total_events = count_result.scalar()
+    logger.info(f"[service_viewers] provider_id={provider_id} → {total_events} eventos en BD")
 
-    # Join para traer datos del evento + usuario + perfil + categoría del servicio
-    rows = await db.execute(
-        select(
-            ServiceViewEvent.viewer_user_id,
-            ServiceViewEvent.service_provider_id,
-            ServiceViewEvent.viewed_at,
-            User.email,
-            UserProfile.full_name,
-            UserProfile.avatar,
-            UserProfile.phone,
-            ServiceCategory.name.label("service_name"),
-        )
-        .select_from(ServiceViewEvent)
-        .join(
-            latest_per_user,
-            and_(
-                ServiceViewEvent.viewer_user_id == latest_per_user.c.viewer_user_id,
-                ServiceViewEvent.viewed_at == latest_per_user.c.last_viewed,
-            ),
-        )
-        .join(User, User.id == ServiceViewEvent.viewer_user_id)
-        .join(UserProfile, UserProfile.user_id == ServiceViewEvent.viewer_user_id, isouter=True)
-        .join(ServiceProvider, ServiceProvider.id == ServiceViewEvent.service_provider_id, isouter=True)
-        .join(ServiceCategory, ServiceCategory.id == ServiceProvider.service_id, isouter=True)
-        .where(ServiceViewEvent.provider_id == provider_id)
-        .order_by(ServiceViewEvent.viewed_at.desc())
-        .limit(50)
-    )
-    rows = rows.all()
+    # DISTINCT ON: PostgreSQL retorna la fila más reciente por usuario
+    raw = text("""
+        SELECT DISTINCT ON (sve.viewer_user_id)
+            sve.viewer_user_id,
+            sve.service_provider_id,
+            sve.viewed_at,
+            u.email,
+            up.full_name,
+            up.avatar,
+            up.phone,
+            sc.name AS service_name
+        FROM service_view_events sve
+        JOIN users u ON u.id = sve.viewer_user_id
+        LEFT JOIN user_profiles up ON up.user_id = sve.viewer_user_id
+        LEFT JOIN service_providers sp ON sp.id = sve.service_provider_id
+        LEFT JOIN service_categories sc ON sc.id = sp.service_id
+        WHERE sve.provider_id = :provider_id
+          AND sve.viewer_user_id IS NOT NULL
+          AND sve.viewed_at >= :cutoff
+        ORDER BY sve.viewer_user_id, sve.viewed_at DESC
+    """)
+
+    result = await db.execute(raw, {"provider_id": provider_id, "cutoff": cutoff})
+    rows = result.all()
+    logger.info(f"[service_viewers] provider_id={provider_id} → {len(rows)} visitantes únicos")
 
     clients: List[ServiceViewerClient] = []
     for r in rows:
