@@ -522,9 +522,11 @@ async def get_provider_detailed(
     try:
         from app.infra.redis.cache import incr_service_views
         incr_service_views(provider_id)
+        logger.info(f"[tracking] /detailed provider={provider_id} viewer={'id='+str(viewer.id) if viewer else 'NONE (anónimo)'}")
         if viewer:
             from app.models.service_view_event import ServiceViewEvent
             from datetime import timezone
+            import traceback as _tb
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
             # Obtener primer servicio del proveedor (puede ser None)
             from app.models.provider import ServiceProvider as _SP
@@ -532,8 +534,7 @@ async def get_provider_detailed(
                 select(_SP.id).where(_SP.provider_id == provider_id).limit(1)
             )
             first_sp_id = sp_result.scalar_one_or_none()
-            if not first_sp_id:
-                logger.warning(f"⚠️ [tracking] provider={provider_id} no tiene servicios en service_providers, se insertará sin service_provider_id")
+            logger.info(f"[tracking] provider={provider_id} first_sp_id={first_sp_id}")
             # Deduplicar: máximo 1 evento por usuario por proveedor por día
             existing = await db.execute(
                 select(ServiceViewEvent.id).where(
@@ -554,9 +555,10 @@ async def get_provider_detailed(
             else:
                 logger.info(f"[tracking] visita ya registrada hoy: provider={provider_id} viewer={viewer.id}")
         else:
-            logger.info(f"[tracking] visita anónima a provider={provider_id}")
+            logger.info(f"[tracking] visita anónima a provider={provider_id} — token no recibido o inválido")
     except Exception as e:
-        logger.warning(f"⚠️ Error registrando visita en /detailed: {e}")
+        import traceback as _tb
+        logger.warning(f"⚠️ Error registrando visita en /detailed: {e}\n{_tb.format_exc()}")
 
     # --- Cache first ---
     cached = get_provider_detailed_cache(provider_id)
