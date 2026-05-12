@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from app.core.database import get_db_async
 from app.dependencies import get_current_user
-from app.models.user import User
+from app.models.user import User, UserProfile
 from app.models.provider import Provider, ServiceProvider
 from app.models.service_view_unlock import ServiceViewUnlock
 from app.models.service_view_event import ServiceViewEvent
@@ -158,17 +158,18 @@ async def _build_clients(
         .subquery()
     )
 
-    # Join para traer datos del evento + usuario + categoría del servicio
+    # Join para traer datos del evento + usuario + perfil + categoría del servicio
     rows = await db.execute(
         select(
             ServiceViewEvent.viewer_user_id,
             ServiceViewEvent.service_provider_id,
             ServiceViewEvent.viewed_at,
-            User.full_name,
-            User.avatar,
-            User.phone,
+            UserProfile.full_name,
+            UserProfile.avatar,
+            UserProfile.phone,
             ServiceCategory.name.label("service_name"),
         )
+        .select_from(ServiceViewEvent)
         .join(
             latest_per_user,
             and_(
@@ -176,7 +177,7 @@ async def _build_clients(
                 ServiceViewEvent.viewed_at == latest_per_user.c.last_viewed,
             ),
         )
-        .join(User, User.id == ServiceViewEvent.viewer_user_id)
+        .join(UserProfile, UserProfile.user_id == ServiceViewEvent.viewer_user_id)
         .join(ServiceProvider, ServiceProvider.id == ServiceViewEvent.service_provider_id, isouter=True)
         .join(ServiceCategory, ServiceCategory.id == ServiceProvider.service_id, isouter=True)
         .where(ServiceViewEvent.provider_id == provider_id)
