@@ -36,7 +36,7 @@ from app.infra.redis import (
     invalidate_provider_detailed_cache, invalidate_provider_cache
 )
 from app.core.redis import rate_limit
-from app.dependencies import get_current_active_user
+from app.dependencies import get_current_active_user, get_viewer_user
 
 # Constantes globales para evitar duplicación de literales
 PROVIDER_NOT_FOUND = "Provider not found"
@@ -1134,7 +1134,8 @@ async def toggle_service_availability(
 async def get_provider_service(
     provider_id: int,
     service_id: int,
-    db: AsyncSession = Depends(get_db_async)
+    db: AsyncSession = Depends(get_db_async),
+    viewer: User = Depends(get_viewer_user),
 ):
     """
     Obtener un servicio específico de un proveedor CON información de contacto del provider
@@ -1165,12 +1166,39 @@ async def get_provider_service(
         
         logger.info(f"✅ Servicio encontrado: {service_provider.business_name}")
 
-        # Incrementar contador de vistas a servicios del proveedor (fail-open)
+        # Incrementar contador Redis (fail-open)
         try:
             from app.infra.redis.cache import incr_service_views
             incr_service_views(service_provider.provider_id)
         except Exception:
             pass
+
+        # Registrar evento de visita en BD (fail-open, deduplicado por día)
+        if viewer is not None:
+            try:
+                from app.models.service_view_event import ServiceViewEvent
+                from sqlalchemy import and_ as _and, cast as _cast, Date as _Date, func as _func
+                # Evitar duplicados: un usuario genera un evento por servicio por día
+                today_start = _func.date_trunc("day", _func.now())
+                dup = await db.execute(
+                    select(ServiceViewEvent.id).where(
+                        _and(
+                            ServiceViewEvent.service_provider_id == service_provider.id,
+                            ServiceViewEvent.viewer_user_id == viewer.id,
+                            ServiceViewEvent.viewed_at >= today_start,
+                        )
+                    )
+                )
+                if dup.scalar_one_or_none() is None:
+                    evt = ServiceViewEvent(
+                        provider_id=service_provider.provider_id,
+                        service_provider_id=service_provider.id,
+                        viewer_user_id=viewer.id,
+                    )
+                    db.add(evt)
+                    await db.flush()   # no commit aquí, se hace al final del request
+            except Exception:
+                pass
 
         # 2. Obtener datos del proveedor (Provider)
         provider_result = await db.execute(

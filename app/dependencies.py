@@ -11,6 +11,8 @@ from app.services.premium_service import PremiumService
 from typing import Optional
 
 security = HTTPBearer()
+# Bearer sin auto_error=False — para endpoints públicos que registran el viewer si hay token
+_security_optional = HTTPBearer(auto_error=False)
 
 
 
@@ -195,3 +197,31 @@ def validate_premium_access(provider_id: int, user_lat: Optional[float] = None, 
     return _validate
 
 get_current_admin_user = get_current_admin
+
+
+async def get_viewer_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security_optional),
+    db: AsyncSession = Depends(get_db_async),
+) -> Optional[User]:
+    """
+    Retorna el usuario autenticado si hay un Bearer token válido; None en caso contrario.
+    Nunca lanza excepción — úsalo en endpoints públicos donde la identidad del visitante
+    es opcional (p.ej. para registrar quién vio un servicio).
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
+        email: str = payload.get("sub")
+        if not email:
+            return None
+    except JWTError:
+        return None
+
+    from sqlalchemy.future import select as _select
+    result = await db.execute(_select(User).where(User.email == email))
+    return result.scalar_one_or_none()

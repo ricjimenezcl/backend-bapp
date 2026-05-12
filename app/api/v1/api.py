@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.v1.endpoints import auth, providers, payments, categories, users, notifications, reviews, chat, test, working_hours, clients, premium, products, payments_verify, transactions, geocoding
+from app.api.v1.endpoints import auth, providers, payments, categories, users, notifications, reviews, chat, test, working_hours, clients, premium, products, payments_verify, transactions, geocoding, service_viewers
 from app.api.v1.endpoints.client_images import router as client_images_router
 from app.api.v1.endpoints.provider_images import router as provider_images_router
 from app.modules.documents import router as documents_router
@@ -28,4 +28,5 @@ api_router.include_router(geocoding.router)  # Geocoding proxy (no prefix, alrea
 api_router.include_router(test.router, tags=["test"])  # Test endpoints for development
 api_router.include_router(client_images_router)    # /client/images/avatar
 api_router.include_router(provider_images_router)  # /provider/images/avatar + /portfolio
+api_router.include_router(service_viewers.router, prefix="/providers", tags=["service-viewers"])
 # api_router.include_router(admin.router, prefix="/admin", tags=["admin"])  # Comentado temporalmente

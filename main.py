@@ -23,7 +23,8 @@ try:
         Payment, Review, Notification, UserDocument,
         ProviderVerification, Gallery, Conversation,
         ConversationParticipant, Message, MessageStatus,
-        ConversationInvitation, ConversationBlock
+        ConversationInvitation, ConversationBlock,
+        ServiceViewUnlock, ServiceViewEvent,
     )
 except ImportError as e:
     import sys

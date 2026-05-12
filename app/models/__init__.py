@@ -15,6 +15,8 @@ from .product import Product
 from .platform_product import PlatformProduct
 from .transaction import Transaction
 from .provider_service_slot import ProviderServiceSlot
+from .service_view_unlock import ServiceViewUnlock
+from .service_view_event import ServiceViewEvent
 
 __all__ = [
     "User", 
