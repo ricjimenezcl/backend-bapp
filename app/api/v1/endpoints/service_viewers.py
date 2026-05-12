@@ -164,6 +164,7 @@ async def _build_clients(
             ServiceViewEvent.viewer_user_id,
             ServiceViewEvent.service_provider_id,
             ServiceViewEvent.viewed_at,
+            User.email,
             UserProfile.full_name,
             UserProfile.avatar,
             UserProfile.phone,
@@ -177,7 +178,8 @@ async def _build_clients(
                 ServiceViewEvent.viewed_at == latest_per_user.c.last_viewed,
             ),
         )
-        .join(UserProfile, UserProfile.user_id == ServiceViewEvent.viewer_user_id)
+        .join(User, User.id == ServiceViewEvent.viewer_user_id)
+        .join(UserProfile, UserProfile.user_id == ServiceViewEvent.viewer_user_id, isouter=True)
         .join(ServiceProvider, ServiceProvider.id == ServiceViewEvent.service_provider_id, isouter=True)
         .join(ServiceCategory, ServiceCategory.id == ServiceProvider.service_id, isouter=True)
         .where(ServiceViewEvent.provider_id == provider_id)
@@ -188,7 +190,7 @@ async def _build_clients(
 
     clients: List[ServiceViewerClient] = []
     for r in rows:
-        full_name = r.full_name or "Usuario"
+        full_name = r.full_name or (r.email.split("@")[0] if r.email else "Usuario")
         if masked:
             clients.append(ServiceViewerClient(
                 id=r.viewer_user_id,
