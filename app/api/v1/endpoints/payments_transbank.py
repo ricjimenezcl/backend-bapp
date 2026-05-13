@@ -133,8 +133,10 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
 
 
 def _make_buy_order(user_id: int, product_type: str) -> str:
-    suffix = uuid.uuid4().hex[:10].upper()
-    return f"BAPP-{user_id}-{product_type}-{suffix}-{int(time.time())}"
+    # Formato: BAPP{timestamp_short}{random_hex} = ~18-20 chars (max 26 for Transbank)
+    ts = int(time.time()) % 1000000  # últimos 6 dígitos del timestamp
+    rand = uuid.uuid4().hex[:4].upper()
+    return f"BAPP{ts}{rand}"
 
 
 @router.post("/transbank/create", response_model=WebpayCreateTransactionResponse)
@@ -157,7 +159,7 @@ def create_transbank_transaction(
         )
 
     buy_order = _make_buy_order(current_user.id, body.product_type.value)
-    session_id = f"sid-{uuid.uuid4().hex[:20]}"
+    session_id = uuid.uuid4().hex[:16]  # 16 chars hex, max 26 for Transbank
 
     try:
         tbk = TransbankService()
