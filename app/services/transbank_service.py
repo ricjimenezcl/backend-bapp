@@ -26,7 +26,7 @@ class TransbankService:
     """Wrapper around Webpay Plus Transaction API."""
 
     INTEGRATION_COMMERCE_CODE = "597055555532"
-    INTEGRATION_API_KEY = "579B464AD27157C5D4E7D17B7A9A4E74"
+    INTEGRATION_API_KEY = "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C"
 
     def __init__(self) -> None:
         if Transaction is None or WebpayOptions is None or IntegrationType is None:
