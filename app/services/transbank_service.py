@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 try:
     from transbank.common.integration_type import IntegrationType
@@ -32,17 +35,29 @@ class TransbankService:
         environment = (getattr(settings, "TRANSBANK_ENVIRONMENT", "integration") or "integration").lower()
         use_integration = environment == "integration"
 
-        commerce_code = settings.TRANSBANK_COMMERCE_CODE
-        api_key = settings.TRANSBANK_API_KEY
-
         if use_integration:
-            commerce_code = commerce_code or self.INTEGRATION_COMMERCE_CODE
-            api_key = api_key or self.INTEGRATION_API_KEY
+            # En modo integration se fuerzan siempre las credenciales oficiales de prueba
+            # para evitar 401 por credenciales de producción seteadas en env vars
+            commerce_code = self.INTEGRATION_COMMERCE_CODE
+            api_key = self.INTEGRATION_API_KEY
+            integration_type = IntegrationType.TEST
+        else:
+            commerce_code = settings.TRANSBANK_COMMERCE_CODE
+            api_key = settings.TRANSBANK_API_KEY
+            integration_type = IntegrationType.LIVE
 
-        if not commerce_code or not api_key:
-            raise RuntimeError("Transbank credentials are not configured")
+            if not commerce_code or not api_key:
+                raise RuntimeError(
+                    "TRANSBANK_COMMERCE_CODE and TRANSBANK_API_KEY must be set for production environment"
+                )
 
-        integration_type = IntegrationType.TEST if use_integration else IntegrationType.LIVE
+        logger.info(
+            "TransbankService init: environment=%s commerce_code=%s...%s",
+            environment,
+            str(commerce_code)[:4],
+            str(commerce_code)[-4:],
+        )
+
         self._tx = Transaction(WebpayOptions(commerce_code, api_key, integration_type))
 
     def create(self, buy_order: str, session_id: str, amount: int, return_url: str) -> Dict[str, Any]:
