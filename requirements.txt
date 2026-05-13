@@ -72,6 +72,9 @@ requests==2.31.0
 # Payment Integration (Mercado Pago)
 mercadopago==2.2.1
 
+# Payment Integration (Transbank Webpay Plus)
+transbank-sdk==5.0.0
+
 # Geoespacial — PostGIS (Fase 3)
 # Requerido cuando USE_POSTGIS=True en config
 geoalchemy2==0.14.3
