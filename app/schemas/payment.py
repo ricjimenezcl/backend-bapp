@@ -160,3 +160,57 @@ class MercadoPagoWebhookPayload(BaseModel):
                 "id": "987654321"
             }
         }
+
+
+# ============================================================================
+# TRANSBANK WEBPAY PLUS (WEB)
+# ============================================================================
+
+class WebpayProductTypeEnum(str, Enum):
+    CLIENT_UNLOCK_7 = "CLIENT_UNLOCK_7"
+    CLIENT_UNLOCK_30 = "CLIENT_UNLOCK_30"
+    PROVIDER_SERVICE_30 = "PROVIDER_SERVICE_30"
+    PROVIDER_SERVICE_YEAR = "PROVIDER_SERVICE_YEAR"
+    PROVIDER_LEADS_7 = "PROVIDER_LEADS_7"
+    PROVIDER_LEADS_30 = "PROVIDER_LEADS_30"
+    PROVIDER_PREMIUM_MONTHLY = "PROVIDER_PREMIUM_MONTHLY"
+
+
+class WebpayCreateTransactionRequest(BaseModel):
+    product_type: WebpayProductTypeEnum
+    amount: int = Field(..., ge=1, description="Monto en CLP")
+
+
+class WebpayCreateTransactionResponse(BaseModel):
+    success: bool
+    token: str
+    url: str
+    buy_order: str
+    session_id: str
+    amount: int
+    product_type: WebpayProductTypeEnum
+
+
+class WebpayCommitTransactionRequest(BaseModel):
+    token: str = Field(..., min_length=8, description="token_ws retornado por Webpay")
+
+
+class WebpayCommitTransactionResponse(BaseModel):
+    success: bool
+    status: str
+    buy_order: Optional[str] = None
+    authorization_code: Optional[str] = None
+    amount: Optional[int] = None
+    transaction_id: Optional[int] = None
+    expires_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+class WebpayStatusResponse(BaseModel):
+    success: bool
+    buy_order: str
+    local_status: str
+    product_type: Optional[str] = None
+    amount: int
+    token: Optional[str] = None
+    transbank: Optional[dict] = None

@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     TRANSBANK_COMMERCE_CODE: Optional[str] = Field(default=None)
     TRANSBANK_API_KEY: Optional[str] = Field(default=None)
     TRANSBANK_USE_INTEGRATION: bool = Field(default=True)
+    TRANSBANK_ENVIRONMENT: str = Field(default="integration")
     # Apple IAP
     APPLE_IAP_SHARED_SECRET: Optional[str] = Field(default=None)
     APPLE_IAP_USE_SANDBOX: bool = Field(default=True)

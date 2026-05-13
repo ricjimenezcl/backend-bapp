@@ -43,6 +43,10 @@ class Transaction(Base):
     transaction_id = Column(String(255), index=True)  # ID interno único
     platform_transaction_id = Column(String(255), index=True)  # ID de la plataforma externa
     platform_order_id = Column(String(255))  # Order ID adicional
+    buy_order = Column(String(255), index=True)
+    tbk_token = Column(String(255), index=True)
+    authorization_code = Column(String(50))
+    product_type = Column(String(50), index=True)
 
     # Validación de compra
     purchase_token = Column(Text)  # Token de Google Play o Apple
@@ -57,6 +61,7 @@ class Transaction(Base):
 
     # Activación del beneficio
     activated_at = Column(TIMESTAMP)
+    paid_at = Column(TIMESTAMP)
     expires_at = Column(TIMESTAMP, index=True)
     benefit_metadata = Column(JSON)  # Información del beneficio activado
 

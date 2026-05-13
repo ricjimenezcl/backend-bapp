@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.v1.endpoints import auth, providers, payments, categories, users, notifications, reviews, chat, test, working_hours, clients, premium, products, payments_verify, transactions, geocoding, service_viewers
+from app.api.v1.endpoints import auth, providers, payments, categories, users, notifications, reviews, chat, test, working_hours, clients, premium, products, payments_verify, payments_transbank, transactions, geocoding, service_viewers
 from app.api.v1.endpoints.client_images import router as client_images_router
 from app.api.v1.endpoints.provider_images import router as provider_images_router
 from app.modules.documents import router as documents_router
@@ -16,6 +16,7 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(payments_verify.router, prefix="/payments", tags=["payment-verification"])
+api_router.include_router(payments_transbank.router, prefix="/payments", tags=["payments-transbank"])
 api_router.include_router(categories.router, prefix="/categories", tags=["categories"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(working_hours.router, prefix="/working-hours", tags=["working-hours"])
