@@ -61,7 +61,7 @@ class TransbankService:
         self._tx = Transaction(WebpayOptions(commerce_code, api_key, integration_type))
 
     def create(self, buy_order: str, session_id: str, amount: int, return_url: str) -> Dict[str, Any]:
-        return self._tx.create(buy_order=buy_order, session_id=session_id, amount=amount, return_url=return_url)
+        return self._tx.create(buy_order, session_id, amount, return_url)
 
     def commit(self, token: str) -> Dict[str, Any]:
         return self._tx.commit(token=token)
