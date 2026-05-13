@@ -6,7 +6,11 @@ Handles event-driven notifications and broadcasting
 from typing import Callable, Dict, List, Any
 from datetime import datetime
 import asyncio
+import logging
 from enum import Enum
+
+
+logger = logging.getLogger(__name__)
 
 
 class EventType(str, Enum):

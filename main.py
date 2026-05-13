@@ -38,6 +38,12 @@ _startup_logger = logging.getLogger("bapp.startup")
 
 
 def _split_sql_statements(sql: str) -> list[str]:
+    normalized_lines: list[str] = []
+    for line in sql.splitlines():
+        normalized_lines.append(line.split("--", 1)[0])
+
+    sql = "\n".join(normalized_lines)
+
     statements: list[str] = []
     current: list[str] = []
     in_dollar_block = False

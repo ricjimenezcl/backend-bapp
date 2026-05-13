@@ -12,6 +12,10 @@ from app.models.provider import Provider
 from app.core.database import get_db_async
 from typing import Optional
 import asyncio
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationEventHandler:
