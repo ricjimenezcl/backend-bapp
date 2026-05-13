@@ -8,6 +8,7 @@ import logging
 import os
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 
 try:
     from app.core.config import settings
@@ -34,6 +35,49 @@ except ImportError as e:
 
 
 _startup_logger = logging.getLogger("bapp.startup")
+
+
+def _split_sql_statements(sql: str) -> list[str]:
+    statements: list[str] = []
+    current: list[str] = []
+    in_dollar_block = False
+    i = 0
+
+    while i < len(sql):
+        if sql[i:i + 2] == "$$":
+            in_dollar_block = not in_dollar_block
+            current.append("$$")
+            i += 2
+            continue
+
+        char = sql[i]
+        if char == ";" and not in_dollar_block:
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+        else:
+            current.append(char)
+        i += 1
+
+    tail = "".join(current).strip()
+    if tail:
+        statements.append(tail)
+
+    return statements
+
+
+async def _run_sql_migration_file(migration_name: str, file_path: Path) -> None:
+    from sqlalchemy import text
+
+    sql = file_path.read_text(encoding="utf-8")
+    statements = _split_sql_statements(sql)
+
+    async with engine_async.begin() as conn:
+        for statement in statements:
+            await conn.execute(text(statement))
+
+    _startup_logger.info("Migration %s applied successfully", migration_name)
 
 
 @asynccontextmanager
@@ -65,19 +109,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         _startup_logger.info(f"Migration service_provider_id skip: {type(e).__name__}: {e}")
 
-    # Run migration 014: align notifications table columns (idempotent)
-    try:
-        import pathlib
-        from sqlalchemy import text
-        mig_path = pathlib.Path(__file__).parent / "migrations" / "014_create_notifications_table.sql"
-        if mig_path.exists():
-            sql = mig_path.read_text(encoding="utf-8")
-            async with engine_async.begin() as conn:
-                await conn.execute(text(sql))
-            _startup_logger.info("Migration 014 (notifications) applied successfully")
-    except Exception as e:
-        _startup_logger.warning(f"Migration 014 error: {type(e).__name__}: {e}")
-        _startup_logger.warning("Continuing without migration 014...")
+    # Run idempotent SQL migrations needed by production schema
+    migrations_dir = Path(__file__).parent / "migrations"
+    startup_migrations = [
+        ("014 (notifications)", migrations_dir / "014_create_notifications_table.sql"),
+        ("017 (transbank fields)", migrations_dir / "017_transbank_webpay_fields.sql"),
+    ]
+
+    for migration_name, migration_path in startup_migrations:
+        try:
+            if migration_path.exists():
+                await _run_sql_migration_file(migration_name, migration_path)
+        except Exception as e:
+            _startup_logger.warning(f"Migration {migration_name} error: {type(e).__name__}: {e}")
+            _startup_logger.warning(f"Continuing without migration {migration_name}...")
 
     # Initialize Event Dispatcher and Notification Handlers
     try:
