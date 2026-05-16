@@ -61,6 +61,24 @@ class User(Base):
         foreign_keys="Booking.client_id",
         lazy="selectin"
     )
+    reports_made = relationship(
+        "Report",
+        back_populates="reporter",
+        foreign_keys="Report.reporter_id",
+        lazy="dynamic"
+    )
+    reports_received = relationship(
+        "Report",
+        back_populates="reported_user",
+        foreign_keys="Report.reported_user_id",
+        lazy="dynamic"
+    )
+    moderation_history = relationship(
+        "ModerationHistory",
+        back_populates="user",
+        foreign_keys="ModerationHistory.user_id",
+        lazy="dynamic"
+    )
 
     @property
     def is_premium_active(self) -> bool:
