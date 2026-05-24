@@ -15,7 +15,7 @@ psycopg2-binary==2.9.9
 
 # Configuration & Validation
 pydantic==2.12.5
-pydantic-settings==2.12.0
+pydantic-settings==2.11.0
 
 
 # Authentication & Security
@@ -44,8 +44,10 @@ python-dotenv==1.0.0
 email-validator==2.1.0
 
 
-# Image Processing
-pillow
+# Image Processing & Computer Vision
+pillow==10.0.1
+numpy==1.24.3
+opencv-python-headless==4.8.1.78
 
 
 # Task Queue & Async Processing
