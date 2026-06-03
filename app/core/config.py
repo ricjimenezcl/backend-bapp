@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Firebase (optional for development)
     FCM_SERVER_KEY: Optional[str] = Field(default=None)
     
+    # Bappie AI
+    GEMINI_API_KEY: Optional[str] = Field(default=None)
+    
     # Cloudinary Storage
     CLOUDINARY_CLOUD_NAME: Optional[str] = Field(default=None)
     CLOUDINARY_API_KEY: Optional[str] = Field(default=None)

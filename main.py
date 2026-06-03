@@ -156,11 +156,124 @@ async def lifespan(app: FastAPI):
         _startup_logger.warning(f"Async Redis not available: {type(e).__name__}: {e}")
         _startup_logger.warning("Continuing in single-instance WebSocket mode")
 
+    # ── Auto-complete expired bookings — tarea periódica ─────────────────────
+    import asyncio as _asyncio
+
+    async def _auto_complete_expired_bookings() -> None:
+        """
+        Cada 5 minutos busca reservas CONFIRMED o IN_PROGRESS cuya fecha/hora
+        + duración ya haya pasado y las marca como COMPLETED, enviando la
+        solicitud de reseña al cliente.
+        """
+        from sqlalchemy import select, update, func as sqlfunc, cast, Interval
+        from sqlalchemy.dialects.postgresql import INTERVAL
+        from app.core.database import get_db_async
+        from app.models.booking import Booking, BookingStatus
+        from app.models.notification import NotificationType
+        from app.services.notification_service import NotificationService
+        from app.api.websocket.connection_manager import connection_manager
+        from app.infra.pubsub import publish_to_user
+
+        logger = _startup_logger.manager.getLogger("bapp.autocomplete")
+
+        while True:
+            await _asyncio.sleep(300)  # ejecutar cada 5 minutos
+            try:
+                now_utc = datetime.now(timezone.utc)
+                async for db in get_db_async():
+                    # Reservas activas cuyo momento de fin (fecha + hora + duración) ya pasó
+                    result = await db.execute(
+                        select(Booking).where(
+                            Booking.status.in_([BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS]),
+                            Booking.scheduled_date.isnot(None),
+                            Booking.scheduled_time.isnot(None),
+                        )
+                    )
+                    bookings = result.scalars().all()
+
+                    completed_ids = []
+                    for booking in bookings:
+                        try:
+                            from datetime import datetime as _dt, timedelta
+                            scheduled_dt = _dt.combine(booking.scheduled_date, booking.scheduled_time)
+                            duration_min = booking.duration or 60
+                            end_dt = scheduled_dt + timedelta(minutes=duration_min)
+                            # Comparar sin timezone (asumimos hora local del servidor == UTC o igual zona)
+                            if end_dt <= now_utc.replace(tzinfo=None):
+                                completed_ids.append(booking)
+                        except Exception:
+                            continue
+
+                    for booking in completed_ids:
+                        try:
+                            await db.execute(
+                                update(Booking)
+                                .where(Booking.id == booking.id)
+                                .values(status=BookingStatus.COMPLETED, completed_at=now_utc)
+                            )
+                            await db.commit()
+
+                            notification_svc = NotificationService(db)
+
+                            # Notificaciones al cliente
+                            await notification_svc.create_booking_notification(
+                                user_id=booking.client_id,
+                                notification_type=NotificationType.BOOKING_COMPLETED,
+                                booking_id=booking.id,
+                                message="Tu servicio ha sido completado."
+                            )
+                            await notification_svc.create_booking_notification(
+                                user_id=booking.client_id,
+                                notification_type=NotificationType.BOOKING_REVIEW_REQUEST,
+                                booking_id=booking.id,
+                                message="¿Cómo fue tu experiencia? Califica el servicio recibido."
+                            )
+
+                            # WebSocket en tiempo real
+                            await connection_manager.broadcast_to_user(booking.client_id, {
+                                "type": "notification",
+                                "notification_type": "booking_completed",
+                                "related_entity_id": booking.id,
+                                "message": "Tu servicio ha sido completado."
+                            })
+                            await connection_manager.broadcast_to_user(booking.client_id, {
+                                "type": "notification",
+                                "notification_type": "booking_review_request",
+                                "related_entity_id": booking.id,
+                                "message": "¿Cómo fue tu experiencia? Califica el servicio."
+                            })
+
+                            # Cola offline
+                            publish_to_user(booking.client_id, "booking_review_request", {
+                                "booking_id": booking.id,
+                                "related_entity_id": booking.id,
+                            })
+
+                            logger.info(f"✅ Auto-completed booking {booking.id} for client {booking.client_id}")
+
+                        except Exception as exc:
+                            logger.error(f"❌ Error auto-completing booking {booking.id}: {exc}")
+                            await db.rollback()
+
+            except Exception as exc:
+                logger.error(f"❌ Auto-complete task error: {exc}")
+
+    _auto_complete_task = _asyncio.create_task(_auto_complete_expired_bookings())
+    _startup_logger.info("Auto-complete expired bookings task started (every 5 min)")
+
     try:
         yield
     finally:
         # Shutdown
         _startup_logger.info("Shutting down...")
+
+        # Cancelar tarea de auto-completado
+        try:
+            _auto_complete_task.cancel()
+            await _asyncio.gather(_auto_complete_task, return_exceptions=True)
+            _startup_logger.info("Auto-complete task cancelled")
+        except Exception:
+            pass
 
         if _redis_client_started:
             try:

@@ -76,7 +76,8 @@ class NotificationService:
         type_messages = {
             NotificationType.BOOKING_CONFIRMED: "Reserva Confirmada",
             NotificationType.BOOKING_REJECTED: "Reserva Rechazada",
-            NotificationType.BOOKING_COMPLETED: "Reserva Completada"
+            NotificationType.BOOKING_COMPLETED: "Reserva Completada",
+            NotificationType.BOOKING_REVIEW_REQUEST: "Califica tu servicio",
         }
         
         title = type_messages.get(notification_type, "Notificación de Reserva")
