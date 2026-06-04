@@ -10,7 +10,6 @@ from app.dependencies import get_current_active_user, get_current_provider_user 
 from app.models.user import User
 from app.models.booking import Booking
 from app.models.provider import Provider, ProviderWorkingHours
-from app.models.service_category import ServiceCategory
 from app.schemas.booking import BookingCreate, BookingResponse
 from app.services.booking_service import BookingService
 from app.services.premium_service import PremiumService
@@ -134,180 +133,85 @@ async def create_booking(
         )
     
     logger.info(f"[BOOKING] Creating booking - Client: {current_user.id}, Provider: {booking_in.provider_id}, Service: {booking_in.service_id}")
-    
-    # Validar que el proveedor exista (async)
-    result = await db.execute(
-        select(Provider).where(Provider.id == booking_in.provider_id)
-    )
-    provider = result.scalar_one_or_none()
-    if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Proveedor no encontrado con ID: {booking_in.provider_id}"
-        )
-    
-    # Validar que la categoría de servicio exista (async)
-    result = await db.execute(
-        select(ServiceCategory).where(ServiceCategory.id == booking_in.service_id)
-    )
-    service_cat = result.scalar_one_or_none()
-    if not service_cat:
-        logger.warning(f"[BOOKING] ServiceCategory not found: {booking_in.service_id}, proceeding anyway")
 
-    # Validar horario del proveedor si tiene horarios definidos
-    if booking_in.scheduled_date and booking_in.scheduled_time:
-        try:
-            from datetime import date as date_type, time as time_type
-            scheduled_date = (
-                booking_in.scheduled_date
-                if isinstance(booking_in.scheduled_date, date_type)
-                else date_type.fromisoformat(str(booking_in.scheduled_date))
-            )
-            scheduled_time = (
-                booking_in.scheduled_time
-                if isinstance(booking_in.scheduled_time, time_type)
-                else time_type.fromisoformat(str(booking_in.scheduled_time)[:5])
-            )
-            # 0=Lunes … 6=Domingo (Python weekday)
-            day_of_week = scheduled_date.weekday()
-
-            hours_result = await db.execute(
-                select(ProviderWorkingHours).where(
-                    ProviderWorkingHours.provider_id == booking_in.provider_id,
-                    ProviderWorkingHours.day_of_week == day_of_week,
-                    ProviderWorkingHours.is_active == True,
-                )
-            )
-            provider_hours = hours_result.scalar_one_or_none()
-
-            if provider_hours is not None:
-                if not (provider_hours.start_time <= scheduled_time <= provider_hours.end_time):
-                    from app.api.v1.endpoints.working_hours import DAY_NAMES
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=(
-                            f"El proveedor no trabaja el {DAY_NAMES[day_of_week]} a esa hora. "
-                            f"Horario disponible: {provider_hours.start_time.strftime('%H:%M')} - "
-                            f"{provider_hours.end_time.strftime('%H:%M')}"
-                        ),
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(f"[BOOKING] Error validando horario proveedor (non-critical): {e}")
-
-    # Crear la reserva directamente con async session
+    # Delegar completamente al servicio (fuente única de verdad)
     try:
-        new_booking = Booking(
+        from app.schemas.booking import CreateBookingRequest
+        booking_service = BookingService(db)
+        booking_response = await booking_service.create_booking(
             client_id=current_user.id,
-            provider_id=booking_in.provider_id,
-            service_id=booking_in.service_id,
-            service_provider_id=booking_in.service_provider_id,
-            scheduled_date=booking_in.scheduled_date,
-            scheduled_time=booking_in.scheduled_time,
-            duration=booking_in.duration,
-            description=booking_in.description,
-            total_price=booking_in.total_price,
-            price=booking_in.total_price,  # campo legacy
-            status='PENDING',
-            location_address=booking_in.location_address or "",
-            location_lat=booking_in.location_lat,
-            location_lng=booking_in.location_lng,
-            service_category=booking_in.service_category or (service_cat.name if service_cat else "GENERAL"),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            request=CreateBookingRequest(
+                provider_id=booking_in.provider_id,
+                service_id=booking_in.service_id,
+                service_provider_id=booking_in.service_provider_id,
+                scheduled_date=booking_in.scheduled_date,
+                scheduled_time=booking_in.scheduled_time,
+                duration=booking_in.duration,
+                total_price=booking_in.total_price,
+                description=booking_in.description,
+                location_address=booking_in.location_address,
+                location_lat=booking_in.location_lat,
+                location_lng=booking_in.location_lng,
+                service_category=booking_in.service_category,
+            )
         )
-        
-        db.add(new_booking)
-        await db.flush()
-        
-        logger.info(f"[BOOKING] Booking flushed with ID: {new_booking.id}")
-        
-        await db.commit()
-        await db.refresh(new_booking)
-        
-        logger.info(f"✅ Reserva creada exitosamente: {new_booking.id}")
-        
-        # Construir response
-        booking_response = BookingResponse(
-            id=str(new_booking.id),
-            client_id=str(new_booking.client_id),
-            provider_id=str(new_booking.provider_id),
-            service_id=str(new_booking.service_id) if new_booking.service_id else "",
-            scheduled_date=new_booking.scheduled_date,
-            scheduled_time=new_booking.scheduled_time,
-            duration=new_booking.duration or 0,
-            description=new_booking.description,
-            total_price=new_booking.total_price or 0,
-            currency=new_booking.currency or "CLP",
-            status=new_booking.status,
-            created_at=new_booking.created_at,
-            updated_at=new_booking.updated_at,
-            completed_at=new_booking.completed_at,
-            service_provider_id=new_booking.service_provider_id,
-            location_address=new_booking.location_address,
-            location_lat=float(new_booking.location_lat) if new_booking.location_lat else None,
-            location_lng=float(new_booking.location_lng) if new_booking.location_lng else None,
-            service_category=new_booking.service_category
-        )
-        
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except Exception as e:
-        await db.rollback()
         logger.error(f"❌ Error creando reserva: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al crear la reserva: {str(e)}"
-        )
-    
-    # Emit event for notification dispatcher (non-blocking)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Error al crear la reserva: {str(e)}")
+
+    # Obtener id del booking creado para eventos y cache
+    new_booking_id = int(booking_response.id if hasattr(booking_response, 'id') else booking_response.get('id', 0))
+    provider_id_val = int(booking_response.provider_id if hasattr(booking_response, 'provider_id') else booking_response.get('provider_id', 0))
+
+    # Emit event (non-blocking)
     try:
         from app.services.event_dispatcher import get_dispatcher, EventType
         dispatcher = get_dispatcher()
         await dispatcher.emit(EventType.BOOKING_CREATED, {
-            "booking_id": new_booking.id,
-            "client_id": new_booking.client_id,
-            "provider_id": new_booking.provider_id,
+            "booking_id": new_booking_id,
+            "client_id": current_user.id,
+            "provider_id": provider_id_val,
             "service_name": booking_in.service_category or "GENERAL",
             "scheduled_date": str(booking_in.scheduled_date) if booking_in.scheduled_date else "Not specified",
             "price": float(booking_in.total_price) if booking_in.total_price else 0,
-            "description": booking_in.description
+            "description": booking_in.description,
         })
     except Exception as e:
         logger.error(f"⚠️ Error emitting booking created event: {str(e)}")
-    
-    # Publish to Redis pub/sub (notifica al proveedor vía WS en tiempo real)
+
+    # Publish to Redis pub/sub
     try:
         publish_booking_event(
-            client_id=new_booking.client_id,
-            provider_id=new_booking.provider_id,
+            client_id=current_user.id,
+            provider_id=provider_id_val,
             event_type="booking.created",
-            payload={
-                "booking_id": new_booking.id,
-                "service_name": booking_in.service_category or "GENERAL",
-                "scheduled_date": str(booking_in.scheduled_date) if booking_in.scheduled_date else None,
-                "status": "PENDING"
-            }
+            payload={"booking_id": new_booking_id, "status": "PENDING"},
         )
-        # Invalida cache para que la próxima carga traiga datos actualizados
-        invalidate_client_bookings_cache(new_booking.client_id)
-        invalidate_provider_bookings_cache(new_booking.provider_id)
-        invalidate_slots_cache(new_booking.provider_id)
+        invalidate_client_bookings_cache(current_user.id)
+        invalidate_provider_bookings_cache(provider_id_val)
+        invalidate_slots_cache(provider_id_val)
     except Exception as e:
         logger.error(f"⚠️ Error publishing booking.created to Redis: {str(e)}")
-    
-    # Dispatch notifications asynchronously (non-blocking)
+
+    # Dispatch notifications (non-blocking)
     try:
         from app.services.notification_helpers import create_task_notify_booking_created
-        
-        result = await db.execute(
-            select(User).where(User.id == new_booking.provider_id)
-        )
-        provider_user = result.scalar_one_or_none()
+        from sqlalchemy.future import select as _select
+        provider_row = await db.execute(_select(User).where(User.id == provider_id_val))
+        provider_user = provider_row.scalar_one_or_none()
         if provider_user:
-            create_task_notify_booking_created(new_booking, provider_user, current_user, db)
+            from app.models.booking import Booking as _Booking
+            booking_row = await db.execute(_select(_Booking).where(_Booking.id == new_booking_id))
+            booking_obj = booking_row.scalar_one_or_none()
+            if booking_obj:
+                create_task_notify_booking_created(booking_obj, provider_user, current_user, db)
     except Exception as e:
         logger.error(f"⚠️ Error dispatching booking created notifications: {str(e)}")
-    
+
     return booking_response
 
 
@@ -336,7 +240,7 @@ async def accept_booking(
             client_id=result.client_id if hasattr(result, 'client_id') else int(result.get('client_id', 0)),
             provider_id=current_user.id,
             event_type="booking.accepted",
-            payload={"booking_id": booking_id, "status": "ACCEPTED"}
+            payload={"booking_id": booking_id, "status": "APPROVED"}
         )
         invalidate_client_bookings_cache(int(result.client_id if hasattr(result, 'client_id') else result.get('client_id', 0)))
         invalidate_provider_bookings_cache(current_user.id)
@@ -344,6 +248,64 @@ async def accept_booking(
     except Exception as e:
         logger.error(f"⚠️ Redis publish booking.accepted error: {e}")
     
+    return result
+
+
+@router.post("/{booking_id}/approve", response_model=BookingResponse)
+async def approve_booking(
+    booking_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """
+    Aprobar una reserva — semántico (alias de /accept).
+    PENDING → APPROVED
+    """
+    if current_user.role != "PROVIDER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only providers can approve bookings"
+        )
+    booking_service = BookingService(db)
+    result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    try:
+        publish_booking_event(
+            client_id=result.client_id if hasattr(result, 'client_id') else int(result.get('client_id', 0)),
+            provider_id=current_user.id,
+            event_type="booking.approved",
+            payload={"booking_id": booking_id, "status": "APPROVED"}
+        )
+        invalidate_client_bookings_cache(int(result.client_id if hasattr(result, 'client_id') else result.get('client_id', 0)))
+        invalidate_provider_bookings_cache(current_user.id)
+        invalidate_slots_cache(current_user.id)
+    except Exception as e:
+        logger.error(f"⚠️ Redis publish booking.approved error: {e}")
+    return result
+
+
+@router.post("/{booking_id}/confirm", response_model=BookingResponse)
+async def confirm_booking_compat(
+    booking_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """
+    Alias de /approve para compatibilidad con clientes anteriores.
+    Deprecado: usar POST /{id}/approve.
+    """
+    if current_user.role != "PROVIDER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only providers can confirm bookings"
+        )
+    booking_service = BookingService(db)
+    result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    try:
+        invalidate_client_bookings_cache(int(result.client_id if hasattr(result, 'client_id') else result.get('client_id', 0)))
+        invalidate_provider_bookings_cache(current_user.id)
+        invalidate_slots_cache(current_user.id)
+    except Exception as e:
+        logger.error(f"⚠️ Cache invalidation error on confirm: {e}")
     return result
 
 
@@ -362,9 +324,17 @@ async def reject_booking(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only providers can reject bookings"
         )
-        
+
+    # Body opcional con motivo de rechazo
+    body: dict = {}
+    try:
+        from fastapi import Request
+        pass  # reason_comment viene por query param o body
+    except Exception:
+        pass
+
     booking_service = BookingService(db)
-    result = await booking_service.reject_booking_with_notifications(booking_id, current_user.id, db)
+    result = await booking_service.reject_booking_with_notifications(booking_id, current_user.id, db_session=db)
     
     # Publish to Redis pub/sub
     try:
@@ -506,7 +476,7 @@ async def get_available_slots(
     Algoritmo:
       1. Obtiene el horario laboral del proveedor para ese día de la semana.
       2. Genera slots de `slot_duration` minutos dentro del horario.
-      3. Resta los slots ya ocupados por reservas PENDING/CONFIRMED/IN_PROGRESS.
+      3. Resta los slots ya ocupados por reservas PENDING/APPROVED/CONFIRMED/IN_PROGRESS.
     """
     # Validar fecha
     try:
@@ -562,7 +532,7 @@ async def get_available_slots(
             and_(
                 Booking.provider_id == provider_id,
                 Booking.scheduled_date == query_date,
-                Booking.status.in_(["PENDING", "CONFIRMED", "IN_PROGRESS"]),
+                Booking.status.in_(["PENDING", "APPROVED", "CONFIRMED", "IN_PROGRESS"]),
             )
         )
     )

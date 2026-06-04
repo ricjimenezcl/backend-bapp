@@ -298,14 +298,14 @@ class BookingService:
         if booking.status != "PENDING":
             raise ValueError(f"Estado inválido: {booking.status}")
 
-        booking.status = "CONFIRMED"
+        booking.status = "APPROVED"
         booking.updated_at = datetime.now(timezone.utc)
         self._record_status_change(
             booking_id=booking_id,
             previous_status="PENDING",
-            new_status="CONFIRMED",
+            new_status="APPROVED",
             changed_by_id=provider_user_id,
-            reason="CONFIRMED_BY_PROVIDER",
+            reason="APPROVED_BY_PROVIDER",
         )
         if request.notes:
             self._add_note(booking_id, "INTERNAL", request.notes, provider_user_id)
@@ -316,7 +316,7 @@ class BookingService:
             self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status="PENDING",
-                new_status="CONFIRMED",
+                new_status="APPROVED",
                 changed_by_id=str(provider_user_id),
             ))
 
@@ -407,14 +407,14 @@ class BookingService:
         if booking.status != "PENDING":
             raise ValueError(f"Estado inválido: {booking.status}")
 
-        booking.status = "CONFIRMED"
+        booking.status = "APPROVED"
         booking.updated_at = datetime.now(timezone.utc)
         self._record_status_change(
             booking_id=booking_id,
             previous_status="PENDING",
-            new_status="CONFIRMED",
+            new_status="APPROVED",
             changed_by_id=user_id,
-            reason="CONFIRMED_BY_PROVIDER",
+            reason="APPROVED_BY_PROVIDER",
         )
         await self.db.commit()
         await self.db.refresh(booking)
@@ -423,7 +423,7 @@ class BookingService:
             self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status="PENDING",
-                new_status="CONFIRMED",
+                new_status="APPROVED",
                 changed_by_id=str(user_id),
             ))
         return self._booking_to_response(booking)
@@ -472,8 +472,8 @@ class BookingService:
             raise ValueError(RESERVA_NO_ENCONTRADA)
         if booking.provider_id != resolved_provider_id:
             raise PermissionError("Solo el proveedor puede completar")
-        if booking.status not in ["CONFIRMED", "IN_PROGRESS"]:
-            raise ValueError(f"Estado inválido: {booking.status}")
+        if booking.status not in ["PENDING", "APPROVED", "CONFIRMED", "IN_PROGRESS"]:
+            raise ValueError(f"No se puede completar una reserva en estado: {booking.status}")
 
         previous_status = booking.status
         booking.status = "COMPLETED"
@@ -592,50 +592,99 @@ class BookingService:
         self,
         booking_id: int,
         provider_id: int,
+        reason_comment: Optional[str] = None,
         db_session: AsyncSession = None,
     ) -> BookingResponse:
-        """Reject booking and dispatch notifications."""
-        response = await self.reject_booking(booking_id, provider_id)
+        """Rechazar reserva: notifica, envía SES y elimina el registro."""
+        # 1. Cargar datos ANTES de eliminar (para notificaciones y SES)
+        result = await self.db.execute(select(Booking).where(Booking.id == booking_id))
+        booking = result.scalar_one_or_none()
+        if not booking:
+            raise ValueError(RESERVA_NO_ENCONTRADA)
 
+        resolved_provider_id = await self._resolve_provider_id(provider_id)
+        if booking.provider_id != resolved_provider_id:
+            raise PermissionError("Solo el proveedor puede rechazar")
+        if booking.status != "PENDING":
+            raise ValueError(f"Solo se pueden rechazar reservas en estado PENDING. Estado actual: {booking.status}")
+
+        client_id  = booking.client_id
+        service    = booking.service_category or "Servicio"
+
+        # 2. Cargar cliente y proveedor para notificaciones
+        client_r   = await self.db.execute(select(User).where(User.id == client_id))
+        provider_r = await self.db.execute(select(User).where(User.id == provider_id))
+        client     = client_r.scalar_one_or_none()
+        provider_u = provider_r.scalar_one_or_none()
+
+        # 3. Guardar historial de estado antes de eliminar (no-crítico)
+        try:
+            self._record_status_change(
+                booking_id=booking_id,
+                previous_status="PENDING",
+                new_status="REJECTED",
+                changed_by_id=provider_id,
+                reason="REJECTED_BY_PROVIDER",
+                reason_comment=reason_comment,
+            )
+            await self.db.commit()
+        except Exception as e:
+            logger.warning(f"[REJECT] status_history insert skipped: {e}")
+            await self.db.rollback()
+
+        # 4. Construir respuesta ANTES de eliminar
+        snapshot = self._booking_to_response(booking)
+        snapshot.status = "REJECTED"
+
+        # 5. Eliminar la reserva
+        await self.db.delete(booking)
+        await self.db.commit()
+        logger.info(f"[REJECT] Booking {booking_id} deleted from DB")
+
+        # 6. Enviar SES al cliente (no-crítico)
+        if client:
+            try:
+                from app.core.config import settings
+                from app.services.email_service import EmailService
+                import asyncio
+                email_svc = EmailService()
+                reschedule_url = f"{settings.FRONTEND_URL}/services" if hasattr(settings, 'FRONTEND_URL') else "https://bapp.cl/services"
+                provider_name = getattr(provider_u, 'full_name', '') or "Tu proveedor" if provider_u else "Tu proveedor"
+                asyncio.create_task(email_svc.send_booking_rejected_email(
+                    client_email=client.email,
+                    client_name=getattr(client, 'full_name', '') or client.email,
+                    provider_name=provider_name,
+                    search_link=reschedule_url,
+                ))
+            except Exception as e:
+                logger.warning(f"[REJECT] SES send skipped (non-critical): {e}")
+
+        # 7. Notificación in-app (no-crítico)
+        try:
+            from app.services.notification_dispatcher import NotificationDispatcher
+            import asyncio
+            nd = NotificationDispatcher(db_session or self.db)
+            asyncio.create_task(
+                nd.dispatch_booking_rejected_notification(client_id, booking_id, service)
+            )
+        except Exception as e:
+            logger.warning(f"[REJECT] In-app notification skipped (non-critical): {e}")
+
+        # 8. Event bus (no-crítico)
         try:
             from app.services.event_dispatcher import get_dispatcher, EventType
             dispatcher = get_dispatcher()
-            result = await self.db.execute(select(Booking).where(Booking.id == booking_id))
-            booking = result.scalar_one_or_none()
-            if booking:
-                await dispatcher.emit(EventType.BOOKING_REJECTED, {
-                    "booking_id": booking.id,
-                    "client_id": booking.client_id,
-                    "provider_id": booking.provider_id,
-                    "service_name": booking.service_category,
-                    "rejection_reason": "Provider unavailable",
-                })
+            await dispatcher.emit(EventType.BOOKING_REJECTED, {
+                "booking_id": booking_id,
+                "client_id": client_id,
+                "provider_id": provider_id,
+                "service_name": service,
+                "rejection_reason": reason_comment or "Proveedor no disponible",
+            })
         except Exception as e:
-            logger.error(f"Error emitting booking rejected event: {e}")
+            logger.warning(f"[REJECT] Event bus skipped (non-critical): {e}")
 
-        try:
-            result = await self.db.execute(select(Booking).where(Booking.id == booking_id))
-            booking = result.scalar_one_or_none()
-            if booking:
-                client_r = await self.db.execute(
-                    select(User).where(User.id == booking.client_id)
-                )
-                provider_r = await self.db.execute(
-                    select(User).where(User.id == booking.provider_id)
-                )
-                client = client_r.scalar_one_or_none()
-                provider = provider_r.scalar_one_or_none()
-                if client and provider:
-                    from app.services.notification_dispatcher import NotificationDispatcher
-                    import asyncio
-                    nd = NotificationDispatcher(db_session or self.db)
-                    asyncio.create_task(
-                        nd.dispatch_booking_rejected(booking, client, provider)
-                    )
-        except Exception as e:
-            logger.error(f"Error dispatching reject notifications: {e}")
-
-        return response
+        return snapshot
 
     # =========================================================================
     # DISPONIBILIDAD
@@ -691,7 +740,7 @@ class BookingService:
                     Booking.provider_id == provider_id,
                     Booking.scheduled_date == scheduled_date,
                     Booking.scheduled_time == scheduled_time,
-                    Booking.status.in_(["PENDING", "CONFIRMED"]),
+                    Booking.status.in_(["PENDING", "APPROVED", "CONFIRMED"]),
                 )
             )
         )

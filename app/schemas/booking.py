@@ -18,12 +18,15 @@ from pydantic import BaseModel, Field, validator
 # ============================================================================
 
 class BookingStatusEnum(str, Enum):
-    PENDING = "PENDING"
-    CONFIRMED = "CONFIRMED"
+    PENDING     = "PENDING"
+    APPROVED    = "APPROVED"      # Aprobada por el proveedor
+    REJECTED    = "REJECTED"      # Rechazada por el proveedor
+    COMPLETED   = "COMPLETED"
+    # Legacy — compatibilidad con datos históricos
+    CONFIRMED   = "CONFIRMED"
     IN_PROGRESS = "IN_PROGRESS"
-    COMPLETED = "COMPLETED"
-    CANCELLED = "CANCELLED"
-    NOSHOW = "NOSHOW"
+    CANCELLED   = "CANCELLED"
+    NOSHOW      = "NOSHOW"
 
 
 class CancellationReasonEnum(str, Enum):

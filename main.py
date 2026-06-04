@@ -156,110 +156,186 @@ async def lifespan(app: FastAPI):
         _startup_logger.warning(f"Async Redis not available: {type(e).__name__}: {e}")
         _startup_logger.warning("Continuing in single-instance WebSocket mode")
 
-    # ── Auto-complete expired bookings — tarea periódica ─────────────────────
+    # ── Cron: mantenimiento de reservas — cada hora ───────────────────────────
     import asyncio as _asyncio
 
-    async def _auto_complete_expired_bookings() -> None:
+    async def _booking_maintenance_cron() -> None:
         """
-        Cada 5 minutos busca reservas CONFIRMED o IN_PROGRESS cuya fecha/hora
-        + duración ya haya pasado y las marca como COMPLETED, enviando la
-        solicitud de reseña al cliente.
+        Cron job de reservas — se ejecuta cada hora.
+
+        Caso 1 (APPROVED/CONFIRMED/IN_PROGRESS → COMPLETED):
+          Si la fecha + hora + duración ya terminó, marca la reserva como COMPLETED
+          y envía notificación in-app + email SES al cliente con link de reseña.
+
+        Caso 2 (PENDING expirado → DELETE):
+          Si la fecha programada ya pasó y la reserva sigue PENDING,
+          la elimina y envía email SES al cliente invitándolo a reagendar.
         """
-        from sqlalchemy import select, update, func as sqlfunc, cast, Interval
-        from sqlalchemy.dialects.postgresql import INTERVAL
+        from datetime import datetime as _dt, timedelta
+        from sqlalchemy import select, update
         from app.core.database import get_db_async
         from app.models.booking import Booking, BookingStatus
+        from app.models.user import User as _User
         from app.models.notification import NotificationType
         from app.services.notification_service import NotificationService
+        from app.services.email_service import get_email_service
         from app.api.websocket.connection_manager import connection_manager
         from app.infra.pubsub import publish_to_user
 
-        logger = _startup_logger.manager.getLogger("bapp.autocomplete")
+        logger = _startup_logger.manager.getLogger("bapp.booking_cron")
 
         while True:
-            await _asyncio.sleep(300)  # ejecutar cada 5 minutos
+            await _asyncio.sleep(3600)  # cada hora
+            logger.info("[CRON] Running booking maintenance...")
+
             try:
                 now_utc = datetime.now(timezone.utc)
+                email_svc = get_email_service()
+                frontend_url = settings.FRONTEND_URL
+
                 async for db in get_db_async():
-                    # Reservas activas cuyo momento de fin (fecha + hora + duración) ya pasó
-                    result = await db.execute(
+
+                    # ──────────────────────────────────────────────────────────
+                    # CASO 1: APPROVED / CONFIRMED / IN_PROGRESS → COMPLETED
+                    # ──────────────────────────────────────────────────────────
+                    active_result = await db.execute(
                         select(Booking).where(
-                            Booking.status.in_([BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS]),
+                            Booking.status.in_([
+                                BookingStatus.APPROVED,
+                                BookingStatus.CONFIRMED,
+                                BookingStatus.IN_PROGRESS,
+                            ]),
                             Booking.scheduled_date.isnot(None),
                             Booking.scheduled_time.isnot(None),
                         )
                     )
-                    bookings = result.scalars().all()
+                    active_bookings = active_result.scalars().all()
 
-                    completed_ids = []
-                    for booking in bookings:
+                    to_complete = []
+                    for b in active_bookings:
                         try:
-                            from datetime import datetime as _dt, timedelta
-                            scheduled_dt = _dt.combine(booking.scheduled_date, booking.scheduled_time)
-                            duration_min = booking.duration or 60
-                            end_dt = scheduled_dt + timedelta(minutes=duration_min)
-                            # Comparar sin timezone (asumimos hora local del servidor == UTC o igual zona)
+                            end_dt = _dt.combine(b.scheduled_date, b.scheduled_time) + timedelta(minutes=b.duration or 60)
                             if end_dt <= now_utc.replace(tzinfo=None):
-                                completed_ids.append(booking)
+                                to_complete.append(b)
                         except Exception:
                             continue
 
-                    for booking in completed_ids:
+                    for b in to_complete:
                         try:
+                            # Cargar cliente y proveedor para SES
+                            client_r = await db.execute(select(_User).where(_User.id == b.client_id))
+                            client = client_r.scalar_one_or_none()
+
+                            # Marcar como COMPLETED
                             await db.execute(
                                 update(Booking)
-                                .where(Booking.id == booking.id)
+                                .where(Booking.id == b.id)
                                 .values(status=BookingStatus.COMPLETED, completed_at=now_utc)
                             )
                             await db.commit()
 
                             notification_svc = NotificationService(db)
 
-                            # Notificaciones al cliente
+                            # Notificaciones in-app
                             await notification_svc.create_booking_notification(
-                                user_id=booking.client_id,
+                                user_id=b.client_id,
                                 notification_type=NotificationType.BOOKING_COMPLETED,
-                                booking_id=booking.id,
-                                message="Tu servicio ha sido completado."
+                                booking_id=b.id,
+                                message="Tu servicio ha sido completado.",
                             )
                             await notification_svc.create_booking_notification(
-                                user_id=booking.client_id,
+                                user_id=b.client_id,
                                 notification_type=NotificationType.BOOKING_REVIEW_REQUEST,
-                                booking_id=booking.id,
-                                message="¿Cómo fue tu experiencia? Califica el servicio recibido."
+                                booking_id=b.id,
+                                message="¿Cómo fue tu experiencia? Califica el servicio recibido.",
                             )
 
                             # WebSocket en tiempo real
-                            await connection_manager.broadcast_to_user(booking.client_id, {
+                            ws_base = {
                                 "type": "notification",
+                                "related_entity_id": b.id,
+                            }
+                            await connection_manager.broadcast_to_user(b.client_id, {
+                                **ws_base,
                                 "notification_type": "booking_completed",
-                                "related_entity_id": booking.id,
-                                "message": "Tu servicio ha sido completado."
+                                "message": "Tu servicio ha sido completado.",
                             })
-                            await connection_manager.broadcast_to_user(booking.client_id, {
-                                "type": "notification",
+                            await connection_manager.broadcast_to_user(b.client_id, {
+                                **ws_base,
                                 "notification_type": "booking_review_request",
-                                "related_entity_id": booking.id,
-                                "message": "¿Cómo fue tu experiencia? Califica el servicio."
+                                "message": "¿Cómo fue tu experiencia? Califica el servicio.",
                             })
 
-                            # Cola offline
-                            publish_to_user(booking.client_id, "booking_review_request", {
-                                "booking_id": booking.id,
-                                "related_entity_id": booking.id,
+                            # Pub/Sub offline
+                            publish_to_user(b.client_id, "booking_review_request", {
+                                "booking_id": b.id,
+                                "related_entity_id": b.id,
                             })
 
-                            logger.info(f"✅ Auto-completed booking {booking.id} for client {booking.client_id}")
+                            # SES: email con link de reseña (no crítico)
+                            if client:
+                                review_url = f"{frontend_url}/client/bookings?review={b.id}"
+                                _asyncio.create_task(email_svc.send_booking_completed_email(
+                                    client_email=client.email,
+                                    client_name=getattr(client, "full_name", "") or client.email,
+                                    provider_name=b.service_category or "tu proveedor",
+                                    review_url=review_url,
+                                ))
+
+                            logger.info(f"[CRON] ✅ Auto-completed booking {b.id} for client {b.client_id}")
 
                         except Exception as exc:
-                            logger.error(f"❌ Error auto-completing booking {booking.id}: {exc}")
+                            logger.error(f"[CRON] ❌ Error completing booking {b.id}: {exc}")
                             await db.rollback()
 
-            except Exception as exc:
-                logger.error(f"❌ Auto-complete task error: {exc}")
+                    # ──────────────────────────────────────────────────────────
+                    # CASO 2: PENDING expirado → DELETE
+                    # ──────────────────────────────────────────────────────────
+                    expired_result = await db.execute(
+                        select(Booking).where(
+                            Booking.status == BookingStatus.PENDING,
+                            Booking.scheduled_date.isnot(None),
+                            Booking.scheduled_date < now_utc.date(),
+                        )
+                    )
+                    expired_bookings = expired_result.scalars().all()
 
-    _auto_complete_task = _asyncio.create_task(_auto_complete_expired_bookings())
-    _startup_logger.info("Auto-complete expired bookings task started (every 5 min)")
+                    for b in expired_bookings:
+                        try:
+                            client_r = await db.execute(select(_User).where(_User.id == b.client_id))
+                            client = client_r.scalar_one_or_none()
+
+                            # Eliminar registro
+                            await db.delete(b)
+                            await db.commit()
+
+                            # SES: email de expiración (no crítico)
+                            if client:
+                                scheduled_str = b.scheduled_date.strftime("%d/%m/%Y") if b.scheduled_date else "N/A"
+                                search_url = f"{frontend_url}/services"
+                                _asyncio.create_task(email_svc.send_booking_expired_email(
+                                    client_email=client.email,
+                                    client_name=getattr(client, "full_name", "") or client.email,
+                                    service_name=b.service_category or "Servicio",
+                                    scheduled_date=scheduled_str,
+                                    search_url=search_url,
+                                ))
+
+                            logger.info(f"[CRON] 🗑️ Deleted expired PENDING booking {b.id} for client {b.client_id}")
+
+                        except Exception as exc:
+                            logger.error(f"[CRON] ❌ Error deleting expired booking {b.id}: {exc}")
+                            await db.rollback()
+
+                    logger.info(
+                        f"[CRON] Maintenance complete — completed: {len(to_complete)}, expired/deleted: {len(expired_bookings)}"
+                    )
+
+            except Exception as exc:
+                logger.error(f"[CRON] ❌ Maintenance task error: {exc}")
+
+    _auto_complete_task = _asyncio.create_task(_booking_maintenance_cron())
+    _startup_logger.info("Booking maintenance cron started (every 1 hour)")
 
     try:
         yield
@@ -271,7 +347,7 @@ async def lifespan(app: FastAPI):
         try:
             _auto_complete_task.cancel()
             await _asyncio.gather(_auto_complete_task, return_exceptions=True)
-            _startup_logger.info("Auto-complete task cancelled")
+            _startup_logger.info("Booking maintenance cron cancelled")
         except Exception:
             pass
 

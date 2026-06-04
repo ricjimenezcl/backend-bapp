@@ -221,6 +221,80 @@ class EmailService:
                     </div>
                 </body>
                 </html>
+            """,
+            "booking_completed": """
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: #34C759; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+                        .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
+                        .review-box { background: #fff8e1; border: 1px solid #FFD60A; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center; }
+                        .stars { font-size: 28px; letter-spacing: 4px; }
+                        .button { background: #FFD60A; color: #333 !important; font-weight: bold; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; margin-top: 10px; }
+                        .footer { margin-top: 20px; font-size: 12px; color: #666; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h2>✅ Tu Servicio Fue Completado</h2>
+                        </div>
+                        <div class="content">
+                            <p>Hola {{ client_name }},</p>
+                            <p>Tu servicio con <strong>{{ provider_name }}</strong> ha sido marcado como completado.</p>
+                            <div class="review-box">
+                                <div class="stars">⭐⭐⭐⭐⭐</div>
+                                <p><strong>¿Cómo fue tu experiencia?</strong></p>
+                                <p style="color:#555; font-size:14px;">Tu opinión ayuda a otros usuarios a encontrar los mejores proveedores.</p>
+                                <a href="{{ review_url }}" class="button">Dejar mi reseña ahora</a>
+                            </div>
+                            <p style="color:#888; font-size:13px; margin-top:16px;">
+                                También puedes calificar el servicio directamente desde la app en la sección <em>Mis Reservas → Historial</em>.
+                            </p>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; 2026 BAPP Search. Todos los derechos reservados.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            """,
+            "booking_expired": """
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: #FF9500; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+                        .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
+                        .button { background: #007AFF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 15px; }
+                        .footer { margin-top: 20px; font-size: 12px; color: #666; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h2>⏰ Tu Solicitud Expiró</h2>
+                        </div>
+                        <div class="content">
+                            <p>Hola {{ client_name }},</p>
+                            <p>Tu solicitud de <strong>{{ service_name }}</strong> programada para el <strong>{{ scheduled_date }}</strong> expiró sin ser confirmada por el proveedor.</p>
+                            <p>Esto puede pasar cuando el proveedor no está disponible en ese horario. ¡No te desanimes!</p>
+                            <h3>¿Qué puedes hacer?</h3>
+                            <ul>
+                                <li>Buscar otro proveedor disponible para el mismo servicio</li>
+                                <li>Solicitar el mismo servicio para una fecha diferente</li>
+                            </ul>
+                            <a href="{{ search_url }}" class="button">Buscar Proveedores Disponibles</a>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; 2026 BAPP Search. Todos los derechos reservados.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
             """
         }
 
@@ -340,6 +414,58 @@ class EmailService:
         )
         if result:
             logger.info(f"✅ Booking rejected email sent to {client_email}")
+        return result
+
+    async def send_booking_completed_email(
+        self,
+        client_email: str,
+        client_name: str,
+        provider_name: str,
+        review_url: str,
+    ) -> bool:
+        """Send email to client when booking is completed, with link to leave review."""
+        html_body = self._build_html_template(
+            "booking_completed",
+            {
+                "client_name": client_name,
+                "provider_name": provider_name,
+                "review_url": review_url,
+            },
+        )
+        result = await self._send(
+            client_email,
+            f"⭐ ¿Cómo fue tu experiencia con {provider_name}?",
+            html_body,
+        )
+        if result:
+            logger.info(f"✅ Booking completed email sent to {client_email}")
+        return result
+
+    async def send_booking_expired_email(
+        self,
+        client_email: str,
+        client_name: str,
+        service_name: str,
+        scheduled_date: str,
+        search_url: str,
+    ) -> bool:
+        """Send email to client when a PENDING booking expires without provider action."""
+        html_body = self._build_html_template(
+            "booking_expired",
+            {
+                "client_name": client_name,
+                "service_name": service_name,
+                "scheduled_date": scheduled_date,
+                "search_url": search_url,
+            },
+        )
+        result = await self._send(
+            client_email,
+            "Tu solicitud de servicio expiró — Encuentra otro proveedor",
+            html_body,
+        )
+        if result:
+            logger.info(f"✅ Booking expired email sent to {client_email}")
         return result
 
 

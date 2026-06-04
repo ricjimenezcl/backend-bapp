@@ -31,12 +31,15 @@ from app.core.database import Base
 
 class BookingStatus:
     """Estados posibles de una reserva"""
-    PENDING = "PENDING"           # Pendiente confirmación del proveedor
-    CONFIRMED = "CONFIRMED"       # Confirmada
-    IN_PROGRESS = "IN_PROGRESS"   # En progreso
-    COMPLETED = "COMPLETED"       # Completada
-    CANCELLED = "CANCELLED"       # Cancelada
-    NOSHOW = "NOSHOW"            # No asistió
+    PENDING     = "PENDING"       # Pendiente confirmación del proveedor
+    APPROVED    = "APPROVED"      # Aprobada por el proveedor
+    REJECTED    = "REJECTED"      # Rechazada por el proveedor
+    COMPLETED   = "COMPLETED"     # Completada
+    # Legacy — mantener para compatibilidad con datos históricos
+    CONFIRMED   = "CONFIRMED"     # deprecated → usar APPROVED
+    IN_PROGRESS = "IN_PROGRESS"   # deprecated → usar APPROVED
+    CANCELLED   = "CANCELLED"     # deprecated → usar REJECTED
+    NOSHOW      = "NOSHOW"        # deprecated
 
 
 class PaymentStatus:
