@@ -474,7 +474,7 @@ async def send_message(
                 "conversation_id": conversation_id,
             }
             await connection_manager.broadcast_to_chat_room(
-                conversation_id, ws_payload, exclude_user_id=sender_id
+                conversation_id, ws_payload
             )
         except Exception as e:
             logger.warning(f"WS broadcast failed for conv {conversation_id}: {e}")
