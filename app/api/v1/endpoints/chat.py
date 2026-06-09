@@ -24,6 +24,7 @@ from app.infra.redis import get_chat_conversations_cache, set_chat_conversations
 from app.services.notification_dispatcher import NotificationDispatcher
 from app.dependencies import get_current_user
 from app.api.websocket.connection_manager import connection_manager
+from app.models.user import UserProfile
 from app.schemas.chat import (
     ConversationResponse,
     ConversationDetailResponse,
@@ -454,14 +455,18 @@ async def send_message(
             )
             recipient = recipient_result.scalars().first()
 
-        # Broadcast por WebSocket a todos en la sala EXCEPTO al emisor
-        # (el emisor ya actualiza su UI localmente al recibir la respuesta HTTP)
+        # Obtener nombre del emisor con query directa (evita lazy-load issues en async)
         try:
-            sender_name = (
-                current_user.client_profile.full_name
-                if current_user.client_profile
-                else current_user.email
+            profile_result = await db.execute(
+                select(UserProfile).where(UserProfile.user_id == current_user.id)
             )
+            profile = profile_result.scalar_one_or_none()
+            sender_name = profile.full_name if profile else current_user.email
+        except Exception:
+            sender_name = current_user.email
+
+        # Broadcast mensaje por WebSocket a todos en la sala
+        try:
             ws_payload = {
                 **connection_manager.format_chat_message(
                     message_id=message.id,
@@ -477,8 +482,26 @@ async def send_message(
                 conversation_id, ws_payload
             )
         except Exception as e:
-            logger.warning(f"WS broadcast failed for conv {conversation_id}: {e}")
-        # Dispatch notification in background (non-blocking)
+            logger.error(f"WS broadcast_to_chat_room failed for conv {conversation_id}: {e}", exc_info=True)
+
+        # Broadcast notificación WS al destinatario para actualizar el sidebar
+        if recipient_user_id:
+            try:
+                notif_payload = {
+                    **connection_manager.format_notification(
+                        notification_id=message.id,
+                        notification_type="message",
+                        title="Nuevo mensaje",
+                        content=f"Tienes un nuevo mensaje de {sender_name}",
+                        related_entity_id=conversation_id,
+                    ),
+                    "channel": "notification",
+                }
+                await connection_manager.broadcast_to_user(recipient_user_id, notif_payload)
+            except Exception as e:
+                logger.warning(f"WS notification failed for user {recipient_user_id}: {e}")
+
+        # Dispatch notification in background (SMS/WhatsApp, no-op si ya está en línea)
         if recipient:
             async def send_notification():
                 try:
