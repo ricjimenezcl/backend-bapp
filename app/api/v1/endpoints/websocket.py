@@ -212,11 +212,16 @@ async def websocket_unified_endpoint(
                             sender_id=user_id,
                             content=content,
                         )
+                        sender_name = (
+                            saved_msg.sender.client_profile.full_name
+                            if saved_msg.sender and saved_msg.sender.client_profile
+                            else (saved_msg.sender.email if saved_msg.sender else "Usuario")
+                        )
                         response = {
                             **connection_manager.format_chat_message(
                                 message_id=saved_msg.id,
                                 sender_id=user_id,
-                                sender_name=f"{saved_msg.sender.first_name} {saved_msg.sender.last_name}",
+                                sender_name=sender_name,
                                 content=content,
                                 timestamp=saved_msg.created_at,
                             ),
@@ -231,7 +236,7 @@ async def websocket_unified_endpoint(
                             other_id = conv.provider_id if user_id == conv.client_id else conv.client_id
                             await notification_service.create_message_notification(
                                 user_id=other_id,
-                                sender_name=f"{saved_msg.sender.first_name} {saved_msg.sender.last_name}",
+                                sender_name=sender_name,
                                 conversation_id=conversation_id,
                             )
                             await connection_manager.broadcast_to_user(
@@ -241,7 +246,7 @@ async def websocket_unified_endpoint(
                                         notification_id=saved_msg.id,
                                         notification_type="message",
                                         title="Nuevo mensaje",
-                                        content=f"Tienes un nuevo mensaje de {saved_msg.sender.first_name}",
+                                        content=f"Tienes un nuevo mensaje de {sender_name}",
                                         related_entity_id=conversation_id,
                                     ),
                                     "channel": "notification",
@@ -430,11 +435,17 @@ async def websocket_chat_endpoint(
                         content=content
                     )
                     
+                    msg_sender_name = (
+                        msg.sender.client_profile.full_name
+                        if msg.sender and msg.sender.client_profile
+                        else (msg.sender.email if msg.sender else "Usuario")
+                    )
+
                     # Create response message
                     response = connection_manager.format_chat_message(
                         message_id=msg.id,
                         sender_id=user_id,
-                        sender_name=f"{msg.sender.first_name} {msg.sender.last_name}",
+                        sender_name=msg_sender_name,
                         content=content,
                         timestamp=msg.created_at
                     )
@@ -449,7 +460,7 @@ async def websocket_chat_endpoint(
                     notification_service = NotificationService(db)
                     await notification_service.create_message_notification(
                         user_id=other_user_id,
-                        sender_name=f"{msg.sender.first_name} {msg.sender.last_name}",
+                        sender_name=msg_sender_name,
                         conversation_id=conversation_id
                     )
                     
@@ -460,7 +471,7 @@ async def websocket_chat_endpoint(
                             notification_id=msg.id,
                             notification_type="message",
                             title=f"Nuevo mensaje",
-                            content=f"Tienes un nuevo mensaje de {msg.sender.first_name}",
+                            content=f"Tienes un nuevo mensaje de {msg_sender_name}",
                             related_entity_id=conversation_id
                         )
                     )

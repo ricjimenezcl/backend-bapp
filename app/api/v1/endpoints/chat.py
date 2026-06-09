@@ -23,6 +23,7 @@ from app.infra.redis import get_chat_messages_cache, set_chat_messages_cache
 from app.infra.redis import get_chat_conversations_cache, set_chat_conversations_cache
 from app.services.notification_dispatcher import NotificationDispatcher
 from app.dependencies import get_current_user
+from app.api.websocket.connection_manager import connection_manager
 from app.schemas.chat import (
     ConversationResponse,
     ConversationDetailResponse,
@@ -440,6 +441,31 @@ async def send_message(
             select(User).where(User.id == recipient_id)
         )
         recipient = recipient_result.scalars().first()
+
+        # Broadcast por WebSocket a todos en la sala EXCEPTO al emisor
+        # (el emisor ya actualiza su UI localmente al recibir la respuesta HTTP)
+        try:
+            sender_name = (
+                current_user.client_profile.full_name
+                if current_user.client_profile
+                else current_user.email
+            )
+            ws_payload = {
+                **connection_manager.format_chat_message(
+                    message_id=message.id,
+                    sender_id=sender_id,
+                    sender_name=sender_name,
+                    content=message.message_content,
+                    timestamp=message.created_at,
+                ),
+                "channel": "chat",
+                "conversation_id": conversation_id,
+            }
+            await connection_manager.broadcast_to_chat_room(
+                conversation_id, ws_payload, exclude_user_id=sender_id
+            )
+        except Exception as e:
+            logger.warning(f"WS broadcast failed for conv {conversation_id}: {e}")
         # Dispatch notification in background (non-blocking)
         if recipient:
             async def send_notification():
