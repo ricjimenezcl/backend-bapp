@@ -20,6 +20,7 @@ from app.infra.pubsub import flush_offline_queue_async
 from app.core.redis import rate_limit
 from sqlalchemy.future import select
 from app.models.user import User
+from app.models.provider import Provider
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 logger = logging.getLogger(__name__)
@@ -174,14 +175,28 @@ async def websocket_unified_endpoint(
                 if msg_type == "join":
                     try:
                         conv = await chat_service.get_conversation_by_id(conversation_id)
-                        if conv and user_id in [conv.client_id, conv.provider_id]:
-                            await connection_manager.connect_to_chat_room(websocket, user_id, conversation_id)
-                            _unified_rooms[user_id].add(conversation_id)
-                            await websocket.send_json({
-                                "channel": "chat",
-                                "type": "joined",
-                                "conversation_id": conversation_id,
-                            })
+                        if conv:
+                            # client_id es User.id directamente
+                            is_client = (user_id == conv.client_id)
+                            # provider_id es Provider.id — resolver el User.id del proveedor
+                            is_provider = False
+                            if not is_client:
+                                p_result = await db.execute(
+                                    select(Provider).where(
+                                        Provider.id == conv.provider_id,
+                                        Provider.user_id == user_id
+                                    )
+                                )
+                                is_provider = p_result.scalar_one_or_none() is not None
+
+                            if is_client or is_provider:
+                                await connection_manager.connect_to_chat_room(websocket, user_id, conversation_id)
+                                _unified_rooms[user_id].add(conversation_id)
+                                await websocket.send_json({
+                                    "channel": "chat",
+                                    "type": "joined",
+                                    "conversation_id": conversation_id,
+                                })
                     except Exception as e:
                         logger.error(f"WS /unified join error: {e}")
 
@@ -233,25 +248,38 @@ async def websocket_unified_endpoint(
                         # Notificar al otro participante
                         conv = await chat_service.get_conversation_by_id(conversation_id)
                         if conv:
-                            other_id = conv.provider_id if user_id == conv.client_id else conv.client_id
-                            await notification_service.create_message_notification(
-                                user_id=other_id,
-                                sender_name=sender_name,
-                                conversation_id=conversation_id,
-                            )
-                            await connection_manager.broadcast_to_user(
-                                other_id,
-                                {
-                                    **connection_manager.format_notification(
-                                        notification_id=saved_msg.id,
-                                        notification_type="message",
-                                        title="Nuevo mensaje",
-                                        content=f"Tienes un nuevo mensaje de {sender_name}",
-                                        related_entity_id=conversation_id,
-                                    ),
-                                    "channel": "notification",
-                                },
-                            )
+                            # Resolver el User.id del destinatario:
+                            # client_id ya es User.id; provider_id es Provider.id → necesita lookup
+                            if user_id == conv.client_id:
+                                # El emisor es el cliente → destinatario es el proveedor
+                                p_result = await db.execute(
+                                    select(Provider).where(Provider.id == conv.provider_id)
+                                )
+                                provider_rec = p_result.scalar_one_or_none()
+                                other_user_id_notif = provider_rec.user_id if provider_rec else None
+                            else:
+                                # El emisor es el proveedor → destinatario es el cliente
+                                other_user_id_notif = conv.client_id
+
+                            if other_user_id_notif:
+                                await notification_service.create_message_notification(
+                                    user_id=other_user_id_notif,
+                                    sender_name=sender_name,
+                                    conversation_id=conversation_id,
+                                )
+                                await connection_manager.broadcast_to_user(
+                                    other_user_id_notif,
+                                    {
+                                        **connection_manager.format_notification(
+                                            notification_id=saved_msg.id,
+                                            notification_type="message",
+                                            title="Nuevo mensaje",
+                                            content=f"Tienes un nuevo mensaje de {sender_name}",
+                                            related_entity_id=conversation_id,
+                                        ),
+                                        "channel": "notification",
+                                    },
+                                )
                     except Exception as e:
                         logger.error(f"WS /unified message error: {e}")
 

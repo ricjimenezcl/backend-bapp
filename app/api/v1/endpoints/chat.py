@@ -347,7 +347,6 @@ async def get_messages(
         if current_user.id == conversation.client_id:
             is_authorized = True
         else:
-            from app.models.provider import Provider
             provider = await db.execute(
                 select(Provider).where(Provider.user_id == current_user.id)
             )
@@ -415,7 +414,6 @@ async def send_message(
         if current_user.id == conversation.client_id:
             is_authorized = True
         else:
-            from app.models.provider import Provider
             provider = await db.execute(
                 select(Provider).where(Provider.user_id == current_user.id)
             )
@@ -434,13 +432,27 @@ async def send_message(
             sender_id=sender_id,
             content=request.content
         )
-        # Determine recipient (the other participant)
-        recipient_id = conversation.provider_id if current_user.id == conversation.client_id else conversation.client_id
+        # Determine recipient (the other participant) — usando User.id en ambos casos
+        # conversation.client_id ya es User.id
+        # conversation.provider_id es Provider.id → hay que resolver el User.id del proveedor
+        if current_user.id == conversation.client_id:
+            # Emisor=cliente → destinatario=proveedor, resolver User.id
+            p_result = await db.execute(
+                select(Provider).where(Provider.id == conversation.provider_id)
+            )
+            provider_rec = p_result.scalar_one_or_none()
+            recipient_user_id = provider_rec.user_id if provider_rec else None
+        else:
+            # Emisor=proveedor → destinatario=cliente, ya es User.id
+            recipient_user_id = conversation.client_id
+
         # Load recipient user
-        recipient_result = await db.execute(
-            select(User).where(User.id == recipient_id)
-        )
-        recipient = recipient_result.scalars().first()
+        recipient = None
+        if recipient_user_id:
+            recipient_result = await db.execute(
+                select(User).where(User.id == recipient_user_id)
+            )
+            recipient = recipient_result.scalars().first()
 
         # Broadcast por WebSocket a todos en la sala EXCEPTO al emisor
         # (el emisor ya actualiza su UI localmente al recibir la respuesta HTTP)
