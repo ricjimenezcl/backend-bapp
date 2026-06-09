@@ -232,7 +232,12 @@ async def accept_booking(
         )
         
     booking_service = BookingService(db)
-    result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    try:
+        result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
     # Publish to Redis pub/sub
     try:
@@ -267,7 +272,12 @@ async def approve_booking(
             detail="Only providers can approve bookings"
         )
     booking_service = BookingService(db)
-    result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    try:
+        result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     try:
         publish_booking_event(
             client_id=result.client_id if hasattr(result, 'client_id') else int(result.get('client_id', 0)),
@@ -299,7 +309,12 @@ async def confirm_booking_compat(
             detail="Only providers can confirm bookings"
         )
     booking_service = BookingService(db)
-    result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    try:
+        result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     try:
         invalidate_client_bookings_cache(int(result.client_id if hasattr(result, 'client_id') else result.get('client_id', 0)))
         invalidate_provider_bookings_cache(current_user.id)
@@ -334,7 +349,12 @@ async def reject_booking(
         pass
 
     booking_service = BookingService(db)
-    result = await booking_service.reject_booking_with_notifications(booking_id, current_user.id, db_session=db)
+    try:
+        result = await booking_service.reject_booking_with_notifications(booking_id, current_user.id, db_session=db)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
     # Publish to Redis pub/sub
     try:
@@ -370,7 +390,12 @@ async def complete_booking(
         )
 
     booking_service = BookingService(db)
-    result = await booking_service.complete_booking(booking_id, current_user.id)
+    try:
+        result = await booking_service.complete_booking(booking_id, current_user.id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # Extraer client_id del resultado
     client_id = (
