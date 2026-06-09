@@ -498,7 +498,7 @@ class DocumentService:
         verification.face_match_status = "APPROVED"
         verification.face_match_score = face_match_score
         verification.verified_by_admin_id = admin_id
-        verification.admin_verification_date = datetime.now(timezone.utc)
+        verification.admin_verification_date = datetime.utcnow()
         verification.admin_notes = admin_notes
         
         await self.db.flush()
@@ -533,7 +533,7 @@ class DocumentService:
         
         verification.face_match_status = "REJECTED"
         verification.verified_by_admin_id = admin_id
-        verification.admin_verification_date = datetime.now(timezone.utc)
+        verification.admin_verification_date = datetime.utcnow()
         verification.admin_notes = admin_notes
         
         await self.db.flush()
@@ -615,7 +615,7 @@ class DocumentService:
         Should be run periodically via task scheduler.
         """
         
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         result = await self.db.execute(
             select(UserDocument).where(
                 (UserDocument.expires_at.isnot(None)) &

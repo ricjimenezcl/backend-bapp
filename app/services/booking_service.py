@@ -299,7 +299,7 @@ class BookingService:
             raise ValueError(f"Estado inválido: {booking.status}")
 
         booking.status = "APPROVED"
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.updated_at = datetime.utcnow()
         self._record_status_change(
             booking_id=booking_id,
             previous_status="PENDING",
@@ -344,7 +344,7 @@ class BookingService:
 
         previous_status = booking.status
         booking.status = "CANCELLED"
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.updated_at = datetime.utcnow()
         await self.db.commit()
         await self.db.refresh(booking)
 
@@ -408,7 +408,7 @@ class BookingService:
             raise ValueError(f"Estado inválido: {booking.status}")
 
         booking.status = "APPROVED"
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.updated_at = datetime.utcnow()
         self._record_status_change(
             booking_id=booking_id,
             previous_status="PENDING",
@@ -445,7 +445,7 @@ class BookingService:
             raise ValueError(f"Estado inválido: {booking.status}")
 
         booking.status = "REJECTED"
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.updated_at = datetime.utcnow()
         self._record_status_change(
             booking_id=booking_id,
             previous_status="PENDING",
@@ -480,8 +480,8 @@ class BookingService:
 
         previous_status = booking.status
         booking.status = "COMPLETED"
-        booking.completed_at = datetime.now(timezone.utc)
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.completed_at = datetime.utcnow()
+        booking.updated_at = datetime.utcnow()
         self._record_status_change(
             booking_id=booking_id,
             previous_status=previous_status,
@@ -519,7 +519,7 @@ class BookingService:
 
         previous_status = booking.status
         booking.status = "CANCELLED"
-        booking.updated_at = datetime.now(timezone.utc)
+        booking.updated_at = datetime.utcnow()
         self._record_status_change(
             booking_id=booking_id,
             previous_status=previous_status,
@@ -801,7 +801,7 @@ class BookingService:
             note_type=request.note_type,
             content=request.content,
             created_by_id=str(created_by_id),
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.utcnow(),
         )
 
     # =========================================================================
