@@ -420,12 +420,15 @@ class BookingService:
         await self.db.refresh(booking)
 
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
-                booking_id=str(booking_id),
-                previous_status="PENDING",
-                new_status="APPROVED",
-                changed_by_id=str(user_id),
-            ))
+            try:
+                self.event_bus.publish(BookingStatusChangedEvent(
+                    booking_id=str(booking_id),
+                    previous_status="PENDING",
+                    new_status="APPROVED",
+                    changed_by_id=str(user_id),
+                ))
+            except Exception as e:
+                logger.warning(f"[ACCEPT] event_bus publish skipped: {e}")
         return self._booking_to_response(booking)
 
     async def reject_booking(self, booking_id: int, user_id: int) -> BookingResponse:

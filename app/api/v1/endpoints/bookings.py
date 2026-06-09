@@ -238,7 +238,11 @@ async def accept_booking(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"⚠️ accept_booking error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{type(e).__name__}: {str(e)}")
+
     # Publish to Redis pub/sub
     try:
         publish_booking_event(
@@ -252,7 +256,7 @@ async def accept_booking(
         invalidate_slots_cache(current_user.id)
     except Exception as e:
         logger.error(f"⚠️ Redis publish booking.accepted error: {e}")
-    
+
     return result
 
 
@@ -278,6 +282,10 @@ async def approve_booking(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"⚠️ approve_booking error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{type(e).__name__}: {str(e)}")
     try:
         publish_booking_event(
             client_id=result.client_id if hasattr(result, 'client_id') else int(result.get('client_id', 0)),
@@ -315,6 +323,10 @@ async def confirm_booking_compat(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"⚠️ confirm_booking error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{type(e).__name__}: {str(e)}")
     try:
         invalidate_client_bookings_cache(int(result.client_id if hasattr(result, 'client_id') else result.get('client_id', 0)))
         invalidate_provider_bookings_cache(current_user.id)
@@ -355,7 +367,11 @@ async def reject_booking(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"⚠️ reject_booking error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{type(e).__name__}: {str(e)}")
+
     # Publish to Redis pub/sub
     try:
         publish_booking_event(
@@ -396,6 +412,10 @@ async def complete_booking(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"⚠️ complete_booking error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{type(e).__name__}: {str(e)}")
 
     # Extraer client_id del resultado
     client_id = (
