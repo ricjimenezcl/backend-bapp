@@ -1373,6 +1373,7 @@ async def get_provider_service(
             'hourly_rate': service_provider.hourly_rate,
             'is_available': service_provider.is_available,
             'validation_status': service_provider.validation_status,
+            'portfolio_images': service_provider.portfolio_images,
             'rating_avg': provider.rating_avg,  # Rating del provider
             'total_reviews': total_reviews,  # Reviews del provider
             'created_at': service_provider.created_at,
@@ -1480,6 +1481,9 @@ async def update_service_provider(
         
         if update_data.phone is not None:
             service_provider.phone = update_data.phone
+
+        if update_data.portfolio_images is not None:
+            service_provider.portfolio_images = update_data.portfolio_images
         
         # Actualizar timestamp
         service_provider.updated_at = func.now()

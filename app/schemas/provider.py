@@ -168,6 +168,7 @@ class ServiceProviderUpdateRequest(BaseModel):
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
     phone: Optional[str] = None
+    portfolio_images: Optional[List[str]] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -237,6 +238,7 @@ class ServiceProviderWithCategoryResponse(BaseModel):
     validation_status: str
     rating_avg: Decimal
     total_reviews: int
+    portfolio_images: Optional[List[str]] = None
     created_at: datetime
     service_category: Optional[ServiceCategoryResponse] = None
     full_name: Optional[str] = Field(None, description="Nombre del proveedor (opcional)")
