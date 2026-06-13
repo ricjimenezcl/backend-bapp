@@ -718,6 +718,7 @@ async def get_provider_detailed(
                 'rating_avg': provider.rating_avg,
                 'total_reviews': total_reviews,
                 'created_at': service.created_at,
+                'portfolio_images': service.portfolio_images or [],
                 'service_category': None
             }
             
@@ -1490,6 +1491,9 @@ async def update_service_provider(
         
         await db.commit()
         await db.refresh(service_provider)
+        
+        # Invalidar caché para que /detailed retorne datos actualizados
+        invalidate_provider_detailed_cache(provider_id)
         
         logger.info(f"✅ Servicio actualizado exitosamente: {service_id}")
 
