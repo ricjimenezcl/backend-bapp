@@ -17,11 +17,13 @@ class ProviderRegister(BaseModel):
     password: str
     full_name: str
     phone: Optional[str] = None
-    run: str
+    run: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
     identity_document: Optional[str] = None  # base64 o url temporal
     selfie: Optional[str] = None  # base64 o url temporal
+    terms_accepted: bool = False
+    email_opt_in: bool = False
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -40,13 +42,13 @@ class ProviderRegister(BaseModel):
     @validator('password')
     def password_strength(cls, v):
         if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
         if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError('La contraseña debe contener al menos una letra mayúscula')
         if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError('La contraseña debe contener al menos una letra minúscula')
         if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one number')
+            raise ValueError('La contraseña debe contener al menos un número')
         return v
 
     @validator('phone')
@@ -57,6 +59,8 @@ class ProviderRegister(BaseModel):
 
     @validator('run')
     def validate_run(cls, v):
+        if v is None or v == "":
+            return None
         if not _validate_rut(v):
             raise ValueError(INVALID_RUT_MSG)
         return _normalize_rut(v)

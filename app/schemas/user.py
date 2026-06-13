@@ -65,19 +65,19 @@ class ClientRegister(BaseModel):
     @validator('password')
     def password_strength(cls, v):
         if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
         if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError('La contraseña debe contener al menos una letra mayúscula')
         if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError('La contraseña debe contener al menos una letra minúscula')
         if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one number')
+            raise ValueError('La contraseña debe contener al menos un número')
         return v
 
     @validator('phone')
     def validate_phone(cls, v):
         if v and not re.match(r'^(\+56|56)?\s?9\s?\d{4}\s?\d{4}$', v.replace(' ', '')):
-            raise ValueError('Invalid Chilean phone number format')
+            raise ValueError('Formato de teléfono chileno inválido')
         return v
 
     model_config = ConfigDict(

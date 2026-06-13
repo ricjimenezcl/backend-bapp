@@ -1,8 +1,8 @@
 import uuid
+from datetime import timezone, timedelta, datetime
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from datetime import timezone, timedelta, datetime
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -126,14 +126,15 @@ class AuthService:
             )
         
         # Verificar si el RUN ya existe
-        result = await self.db.execute(select(Provider).where(Provider.run == provider_data.run))
-        existing_provider = result.scalar_one_or_none()
+        if provider_data.run:
+            result = await self.db.execute(select(Provider).where(Provider.run == provider_data.run))
+            existing_provider = result.scalar_one_or_none()
 
-        if existing_provider:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=RUN_ALREADY_REGISTERED
-            )
+            if existing_provider:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=RUN_ALREADY_REGISTERED
+                )
         
         # Crear usuario PROVEEDOR
         hashed_password = self.get_password_hash(provider_data.password)
@@ -143,7 +144,10 @@ class AuthService:
             password=hashed_password,
             role="PROVIDER",
             status="ACTIVE",
-            email_verified=False
+            email_verified=False,
+            terms_accepted=getattr(provider_data, 'terms_accepted', False),
+            terms_accepted_at=datetime.now(timezone.utc) if getattr(provider_data, 'terms_accepted', False) else None,
+            email_opt_in=getattr(provider_data, 'email_opt_in', False),
         )
 
         self.db.add(user)

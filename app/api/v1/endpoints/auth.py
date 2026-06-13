@@ -1,8 +1,9 @@
 import logging
+from typing import Any
 
 from app.dependencies import get_current_active_user
 
-from fastapi import Body, APIRouter, Depends, HTTPException, Request, status, File, UploadFile, Form
+from fastapi import Body, APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -14,7 +15,7 @@ from app.core.database import get_db_async
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.user import UserResponse, ClientRegister, Token
 from app.schemas.provider import ProviderRegister, ProviderResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ValidationError
 from app.services.auth_service import AuthService
 from app.core.config import settings
 from app.core.redis import rate_limit, cache_set
@@ -152,26 +153,13 @@ async def register_client(
 @router.post("/register-provider", response_model=ProviderResponse)
 async def register_provider(
     request: Request,
-    email: EmailStr = Form(...),
-    password: str = Form(...),
-    run: str = Form(...),
-    full_name: str = Form(...),
-    phone: str = Form(None),
-    bio: str = Form(None),
-    avatar: UploadFile = File(None),
     db: AsyncSession = Depends(get_db_async)
 ):
     """
-    Register a new provider with optional avatar upload to Cloudinary.
+    Register a new provider.
 
-    Accepts multipart form data:
-    - email: Provider email
-    - password: Password (min 8 chars, uppercase, lowercase, digit)
-    - run: Chilean RUN (format: 12345678-9)
-    - full_name: Full name
-    - phone: Phone number (optional)
-    - bio: Biography (optional)
-    - avatar: Avatar image file (optional, jpg/png)
+    Accepts JSON payloads used by the web frontend and keeps
+    backward compatibility with multipart/form-data submissions.
     """
     # Rate limit: 5 registros por IP por hora
     try:
@@ -188,30 +176,39 @@ async def register_provider(
         pass  # fail-open
 
     auth_service = AuthService(db)
-    avatar_url = None
-
     try:
-        logger.info(f"Registering PROVIDER: {email}, RUN: {run}")
+        content_type = request.headers.get("content-type", "")
+        payload: dict[str, Any]
+        avatar = None
 
-        if avatar and avatar.filename:
+        if "application/json" in content_type:
+            payload = await request.json()
+        else:
+            form = await request.form()
+            avatar = form.get("avatar")
+            payload = {
+                "email": form.get("email"),
+                "password": form.get("password"),
+                "run": form.get("run") or None,
+                "full_name": form.get("full_name"),
+                "phone": form.get("phone") or None,
+                "bio": form.get("bio") or None,
+                "terms_accepted": str(form.get("terms_accepted", "false")).lower() in {"true", "1", "on", "yes"},
+                "email_opt_in": str(form.get("email_opt_in", "false")).lower() in {"true", "1", "on", "yes"},
+            }
+
+        provider_data = ProviderRegister(**payload)
+        logger.info(f"Registering PROVIDER: {provider_data.email}, RUN: {provider_data.run or 'N/A'}")
+
+        if avatar and getattr(avatar, "filename", None):
             try:
                 avatar_url = await auth_service.upload_provider_avatar(
                     provider_id=0,
                     file=avatar
                 )
+                provider_data.avatar = avatar_url
             except Exception as e:
                 logger.warning(f"Avatar upload failed (non-critical): {e}")
-                avatar_url = None
-
-        provider_data = ProviderRegister(
-            email=email,
-            password=password,
-            run=run,
-            full_name=full_name,
-            phone=phone,
-            bio=bio,
-            avatar=avatar_url
-        )
 
         provider = await auth_service.register_provider(provider_data)
         logger.info(f"Provider registered successfully: ID={provider.id}")
@@ -235,6 +232,14 @@ async def register_provider(
         await db.rollback()
         logger.warning(f"Provider registration HTTP error {e.status_code}: {e.detail}")
         raise
+    except ValidationError as e:
+        await db.rollback()
+        first_error = e.errors()[0] if e.errors() else {"msg": "Datos de registro inválidos"}
+        logger.warning(f"Provider registration validation error: {first_error}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=first_error.get("msg", "Datos de registro inválidos")
+        )
     except ValueError as e:
         await db.rollback()
         logger.warning(f"Provider registration validation error: {e}")

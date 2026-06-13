@@ -431,11 +431,13 @@ def create_app() -> FastAPI:
         logger = logging.getLogger(__name__)
         logger.error(f"[VALIDATION_ERROR] Request: {request.url.path} | Method: {request.method}")
         logger.error(f"[VALIDATION_ERROR] Errors: {errors}")
+
+        first_message = errors[0]["message"] if errors else "Request validation failed"
         
         return JSONResponse(
             status_code=422,
             content={
-                "detail": "Request validation failed",
+            "detail": first_message,
                 "errors": errors,
                 "hint": "Check that all required fields are present and have correct types",
                 "path": str(request.url.path),
