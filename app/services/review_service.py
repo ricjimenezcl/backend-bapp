@@ -20,6 +20,37 @@ class ReviewService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _resolve_review_provider_id(self, booking: Booking) -> int:
+        """
+        Resuelve el valor a guardar en reviews.provider_id.
+
+        En la BD actual, reviews.provider_id referencia service_providers.id.
+        Priorizamos booking.service_provider_id y, si no existe, intentamos
+        inferirlo por provider_id (+ service_id cuando esté disponible).
+        """
+        if booking.service_provider_id:
+            return booking.service_provider_id
+
+        query = select(ServiceProvider).where(
+            ServiceProvider.provider_id == booking.provider_id
+        )
+
+        if booking.service_id:
+            query = query.where(ServiceProvider.service_id == booking.service_id)
+
+        result = await self.db.execute(query.order_by(ServiceProvider.id.asc()).limit(1))
+        sp = result.scalar_one_or_none()
+        if sp:
+            return sp.id
+
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No se pudo resolver el servicio del proveedor para esta reserva. "
+                "Contacta soporte para regularizar la data histórica."
+            ),
+        )
+
     async def create_review(self, client_id: int, review_in: CreateReviewRequest) -> ReviewResponse:
         # 1. Verificar Booking existe
         result_booking = await self.db.execute(
@@ -47,11 +78,14 @@ class ReviewService:
         if result_exists.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Ya existe una reseña para este booking")
 
-        # 5. Crear la reseña
+        # 5. Resolver service_provider_id objetivo para la reseña
+        review_provider_id = await self._resolve_review_provider_id(booking)
+
+        # 6. Crear la reseña
         new_review = Review(
             booking_id=review_in.booking_id,
             client_id=client_id,
-            provider_id=booking.provider_id,
+            provider_id=review_provider_id,
             rating=review_in.rating,
             comment=review_in.comment,
         )
@@ -60,17 +94,17 @@ class ReviewService:
         # Flush para obtener el id y para que el AVG lo incluya
         await self.db.flush()
 
-        # 6. Recalcular ratings (ServiceProvider + Provider padre)
-        await self._recalculate_ratings(booking.provider_id)
+        # 7. Recalcular ratings (ServiceProvider + Provider padre)
+        await self._recalculate_ratings(review_provider_id)
 
-        # 7. Commit principal
+        # 8. Commit principal
         await self.db.commit()
         await self.db.refresh(new_review)
 
-        # 8. Notificar al proveedor (transacción separada — no crítica)
-        await self._notify_provider_review(new_review, booking.provider_id, review_in)
+        # 9. Notificar al proveedor (transacción separada — no crítica)
+        await self._notify_provider_review(new_review, review_provider_id, review_in)
 
-        # 9. Resolver client_name para el response
+        # 10. Resolver client_name para el response
         client_name = await self._get_client_name(client_id)
 
         return ReviewResponse(
@@ -200,12 +234,21 @@ class ReviewService:
             return None
 
     async def get_provider_reviews(self, provider_id: int, limit: int = 20) -> List[ReviewResponse]:
-        """Lista reseñas de un proveedor con nombre del cliente."""
+        """Lista reseñas de un proveedor (providers.id) con nombre del cliente."""
         from app.models.user import UserProfile
+
+        # reviews.provider_id referencia service_providers.id en la BD actual,
+        # por eso primero resolvemos los servicios publicados del proveedor.
+        sp_result = await self.db.execute(
+            select(ServiceProvider.id).where(ServiceProvider.provider_id == provider_id)
+        )
+        sp_ids = [row[0] for row in sp_result.all()]
+        if not sp_ids:
+            return []
 
         result = await self.db.execute(
             select(Review)
-            .where(Review.provider_id == provider_id)
+            .where(Review.provider_id.in_(sp_ids))
             .order_by(Review.created_at.desc())
             .limit(limit)
         )
