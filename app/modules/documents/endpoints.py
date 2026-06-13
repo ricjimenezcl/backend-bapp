@@ -51,7 +51,7 @@ async def generate_upload_signature(
     API secrets. Frontend uses these credentials to upload directly to Cloudinary.
     
     Args:
-        document_type: IDENTITY_DOCUMENT, SELFIE, or BACKGROUND_CHECK
+        document_type: IDENTITY_DOCUMENT, SELFIE, BACKGROUND_CHECK o PORTFOLIO
     """
     
     try:
@@ -72,10 +72,14 @@ async def generate_upload_signature(
         
         storage = get_storage()
         folder = f"users/{current_user.id}/documents/{document_type.lower()}"
+
+        # PORTFOLIO usa firma signed para no depender de un unsigned preset whitelisted.
+        use_unsigned = document_type.lower() != "portfolio"
         
         signature_result = await storage.generate_upload_signature(
             folder=folder,
-            resource_type="image"
+            resource_type="image",
+            unsigned=use_unsigned,
         )
         
         # Generate a unique public_id for this upload
