@@ -55,7 +55,8 @@ def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
         return
 
     day_key = datetime.utcnow().strftime("%Y-%m-%d")
-    rl_key = f"rate:client:provider-search:{current_user.id}:{day_key}"
+    # v2: resetea el contador previo y deja el límite asociado sólo a búsquedas de proveedores.
+    rl_key = f"rate:client:provider-search:v2:{current_user.id}:{day_key}"
     if not rate_limit(rl_key, 3, 60 * 60 * 24):
         raise HTTPException(
             status_code=403,
@@ -1781,8 +1782,6 @@ async def text_search_providers(
     y nombre de categoría. Case-insensitive, match parcial (ILIKE).
     Soporta paginación con page/limit.
     """
-    _enforce_client_daily_search_limit(current_user)
-
     offset = (page - 1) * limit
     search_term = f"%{q}%"
 
