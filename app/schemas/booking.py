@@ -135,6 +135,7 @@ class BookingResponse(BaseModel):
     location_lat: Optional[float] = None
     location_lng: Optional[float] = None
     service_category: Optional[str] = None
+    reviewed: bool = False
     
     class Config:
         from_attributes = True

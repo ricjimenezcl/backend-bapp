@@ -45,6 +45,7 @@ async def get_client_bookings(
     # Esto evita errores 403 cuando el parámetro no coincide con el token
     from sqlalchemy.future import select
     from sqlalchemy import desc
+    from sqlalchemy.orm import selectinload
     
     # Rate limiting por usuario (10 req/min)
     rl_key = f"rate:bookings:client:{current_user.id}"
@@ -57,9 +58,10 @@ async def get_client_bookings(
     if cached:
         return cached
 
-    # Usar query async para obtener reservas
+    # Usar query async para obtener reservas (con reviews cargadas)
     result = await db.execute(
         select(Booking)
+        .options(selectinload(Booking.reviews))
         .where(Booking.client_id == current_user.id)
         .order_by(desc(Booking.created_at))
     )

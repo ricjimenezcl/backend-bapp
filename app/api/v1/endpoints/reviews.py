@@ -7,6 +7,7 @@ from app.dependencies import get_current_active_user
 from app.models.user import User
 from app.schemas.review import CreateReviewRequest, ReviewResponse
 from app.services.review_service import ReviewService
+from app.core.redis import cache_delete
 
 router = APIRouter()
 
@@ -23,7 +24,10 @@ async def create_review(
         raise HTTPException(status_code=403, detail="Only clients can leave reviews")
 
     service = ReviewService(db)
-    return await service.create_review(current_user.id, review_in)
+    result = await service.create_review(current_user.id, review_in)
+    # Invalidar caché de bookings para que reviewed=True se refleje
+    cache_delete(f"bookings:client:{current_user.id}")
+    return result
 
 @router.get("/providers/{provider_id}/reviews", response_model=List[ReviewResponse])
 async def get_provider_reviews(

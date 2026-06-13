@@ -20,6 +20,7 @@ from app.models.booking import (
     Booking, BookingStatusHistory, BookingCancellation,
     ServiceAvailability, BookingNote, BookingStatus, CancellationReason, DayOfWeek
 )
+from app.models.review import Review
 from app.models.user import User
 from app.models.provider import Provider
 from app.models.service_category import ServiceCategory
@@ -809,6 +810,8 @@ class BookingService:
     # =========================================================================
 
     def _booking_to_response(self, booking: Booking) -> BookingResponse:
+        # Verificar si ya existe una review para este booking
+        has_review = bool(booking.reviews) if hasattr(booking, 'reviews') and booking.reviews is not None else False
         return BookingResponse(
             id=str(booking.id),
             client_id=str(booking.client_id),
@@ -829,6 +832,7 @@ class BookingService:
             location_lat=float(booking.location_lat) if booking.location_lat else None,
             location_lng=float(booking.location_lng) if booking.location_lng else None,
             service_category=booking.service_category,
+            reviewed=has_review,
         )
 
     def _booking_to_detail_response(self, booking: Booking) -> BookingDetailResponse:
