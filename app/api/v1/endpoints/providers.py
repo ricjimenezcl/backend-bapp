@@ -38,6 +38,7 @@ from app.infra.redis import (
 )
 from app.core.redis import rate_limit
 from app.dependencies import get_current_active_user, get_viewer_user
+from app.core.redis import redis
 
 # Constantes globales para evitar duplicación de literales
 PROVIDER_NOT_FOUND = "Provider not found"
@@ -66,6 +67,31 @@ def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
                 "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
             },
         )
+
+
+# DEBUG: Endpoint temporal para resetear contadores de búsqueda
+@router.post("/debug/reset-search-limits")
+async def debug_reset_search_limits():
+    """Resetea todos los contadores de búsqueda diaria (solo para desarrollo)."""
+    try:
+        pattern = "rate:client:provider-search:v2:*"
+        keys = redis.keys(pattern)
+        deleted_count = 0
+        for key in keys:
+            redis.delete(key)
+            deleted_count += 1
+        return {
+            "status": "success",
+            "message": f"Contadores reseteados",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        logger.error(f"Error reseteando contadores: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "deleted_count": 0
+        }
 
 
 # Endpoint para validación biométrica de proveedor
