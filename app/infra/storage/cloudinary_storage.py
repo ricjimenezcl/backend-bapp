@@ -76,7 +76,6 @@ class CloudinaryStorage(StorageAdapter):
             params = {
                 "timestamp": timestamp,
                 "folder": folder,
-                "resource_type": resource_type,
             }
             
             # Create signature
