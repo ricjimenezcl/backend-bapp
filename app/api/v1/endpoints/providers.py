@@ -49,23 +49,24 @@ router = APIRouter()
 
 def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
     """Limita búsquedas diarias para clientes no premium (3 por día UTC)."""
-    if not current_user or current_user.role != "CLIENT":
-        return
-    if current_user.is_premium_active:
-        return
+    return  # TODO: re-enable for production
+    # if not current_user or current_user.role != "CLIENT":
+    #     return
+    # if current_user.is_premium_active:
+    #     return
 
-    day_key = datetime.utcnow().strftime("%Y-%m-%d")
-    # v2: resetea el contador previo y deja el límite asociado sólo a búsquedas de proveedores.
-    rl_key = f"rate:client:provider-search:v2:{current_user.id}:{day_key}"
-    if not rate_limit(rl_key, 3, 60 * 60 * 24):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "DAILY_SEARCH_LIMIT_REACHED",
-                "message": "Plan gratuito: máximo 3 búsquedas diarias. Desbloquea acceso por 7 días o 30 días.",
-                "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
-            },
-        )
+    # day_key = datetime.utcnow().strftime("%Y-%m-%d")
+    # # v2: resetea el contador previo y deja el límite asociado sólo a búsquedas de proveedores.
+    # rl_key = f"rate:client:provider-search:v2:{current_user.id}:{day_key}"
+    # if not rate_limit(rl_key, 3, 60 * 60 * 24):
+    #     raise HTTPException(
+    #         status_code=403,
+    #         detail={
+    #             "code": "DAILY_SEARCH_LIMIT_REACHED",
+    #             "message": "Plan gratuito: máximo 3 búsquedas diarias. Desbloquea acceso por 7 días o 30 días.",
+    #             "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
+    #         },
+    #     )
 
 
 # Endpoint para validación biométrica de proveedor
