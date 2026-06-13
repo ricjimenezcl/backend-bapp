@@ -47,6 +47,26 @@ SERVICE_NOT_FOUND = "Service not found or does not belong to this provider"
 router = APIRouter()
 
 
+def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
+    """Limita búsquedas diarias para clientes no premium (3 por día UTC)."""
+    if not current_user or current_user.role != "CLIENT":
+        return
+    if current_user.is_premium_active:
+        return
+
+    day_key = datetime.utcnow().strftime("%Y-%m-%d")
+    rl_key = f"rate:client:provider-search:{current_user.id}:{day_key}"
+    if not rate_limit(rl_key, 3, 60 * 60 * 24):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "DAILY_SEARCH_LIMIT_REACHED",
+                "message": "Plan gratuito: máximo 3 búsquedas diarias. Desbloquea acceso por 7 días o 30 días.",
+                "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
+            },
+        )
+
+
 # Endpoint para validación biométrica de proveedor
 @router.post("/validate-identity", response_model=ProviderResponse)
 async def validate_identity(
@@ -272,9 +292,12 @@ async def get_nearby_providers_by_service_id(
     service_id: int = Path(..., description="ID del servicio"),
     skip: int = Query(0, ge=0, description="Registros a omitir (paginación)"),
     limit: int = Query(10, ge=1, le=50, description="Máximo de registros a devolver"),
-    db: AsyncSession = Depends(get_db_async)
+    db: AsyncSession = Depends(get_db_async),
+    current_user: Optional[User] = Depends(get_viewer_user),
 ):
     """Obtener proveedores cercanos por ID de servicio (paginado)"""
+    _enforce_client_daily_search_limit(current_user)
+
     geolocation_service = GeolocationService(db)
     providers = await geolocation_service.find_nearby_providers_by_service_id(
         user_lat=lat,
@@ -285,6 +308,65 @@ async def get_nearby_providers_by_service_id(
         limit=limit,
     )
     return providers
+
+
+@router.get("/nearby/services", response_model=List[ServiceProviderResponse])
+async def get_nearby_providers_by_service_ids(
+    lat: float = Query(..., description="Latitud del usuario"),
+    lng: float = Query(..., description="Longitud del usuario"),
+    radius: float = Query(10, description="Radio en kilómetros"),
+    service_ids: str = Query(..., description="IDs de servicios separados por coma"),
+    skip: int = Query(0, ge=0, description="Registros a omitir (paginación)"),
+    limit: int = Query(20, ge=1, le=100, description="Máximo de registros a devolver"),
+    db: AsyncSession = Depends(get_db_async),
+    current_user: Optional[User] = Depends(get_viewer_user),
+):
+    """Búsqueda unificada por múltiples service_ids (1 operación de búsqueda)."""
+    _enforce_client_daily_search_limit(current_user)
+
+    try:
+        parsed_ids = [int(x.strip()) for x in service_ids.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="service_ids inválido")
+
+    unique_ids = list(dict.fromkeys(parsed_ids))
+    if not unique_ids:
+        return []
+
+    # Cliente sin premium: máximo 3 servicios por búsqueda
+    if current_user and current_user.role == "CLIENT" and not current_user.is_premium_active:
+        if len(unique_ids) > 3:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "FREE_SERVICE_SELECTION_LIMIT",
+                    "message": "Plan gratuito: máximo 3 servicios por búsqueda. Desbloquea acceso por 7 días o 30 días.",
+                    "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
+                },
+            )
+
+    geolocation_service = GeolocationService(db)
+    merged: List[ServiceProviderResponse] = []
+    seen_sp_ids = set()
+
+    for sid in unique_ids:
+        providers = await geolocation_service.find_nearby_providers_by_service_id(
+            user_lat=lat,
+            user_lng=lng,
+            radius_km=radius,
+            service_id=sid,
+            skip=0,
+            limit=limit,
+        )
+        for p in providers:
+            if p.id in seen_sp_ids:
+                continue
+            seen_sp_ids.add(p.id)
+            merged.append(p)
+
+    # Ordenar por distancia y aplicar paginación final
+    merged.sort(key=lambda p: (p.distance if p.distance is not None else 999999))
+    return merged[skip: skip + limit]
 
 @router.get("/geocoding/search")
 async def geocoding_search(
@@ -1691,6 +1773,7 @@ async def text_search_providers(
     page: int = Query(1, ge=1, description="Página"),
     limit: int = Query(20, ge=1, le=50, description="Resultados por página"),
     db: AsyncSession = Depends(get_db_async),
+    current_user: Optional[User] = Depends(get_viewer_user),
 ):
     """Búsqueda de proveedores por texto libre.
 
@@ -1698,6 +1781,8 @@ async def text_search_providers(
     y nombre de categoría. Case-insensitive, match parcial (ILIKE).
     Soporta paginación con page/limit.
     """
+    _enforce_client_daily_search_limit(current_user)
+
     offset = (page - 1) * limit
     search_term = f"%{q}%"
 
