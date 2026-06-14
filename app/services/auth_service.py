@@ -1,5 +1,5 @@
 import uuid
-from datetime import timezone, timedelta, datetime
+from datetime import timedelta, datetime
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -146,7 +146,7 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             terms_accepted=getattr(provider_data, 'terms_accepted', False),
-            terms_accepted_at=datetime.now(timezone.utc) if getattr(provider_data, 'terms_accepted', False) else None,
+            terms_accepted_at=datetime.utcnow() if getattr(provider_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(provider_data, 'email_opt_in', False),
         )
 
