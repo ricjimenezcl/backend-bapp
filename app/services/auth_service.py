@@ -95,6 +95,7 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             terms_accepted=getattr(client_data, 'terms_accepted', False),
+            terms_accepted_at=datetime.utcnow() if getattr(client_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(client_data, 'email_opt_in', False),
         )
 
