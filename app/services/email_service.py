@@ -57,6 +57,10 @@ class EmailService:
             logger.error(f"❌ SES send failed to {to}: {str(e)}")
             return False
 
+    async def send_email(self, to_email: str, subject: str, body: str) -> bool:
+        """Public alias for _send() — accepts raw HTML body."""
+        return await self._send(to_email, subject, body)
+
     def _build_html_template(self, template_name: str, context: dict) -> str:
         """Build HTML email template with context"""
         from jinja2 import Template

@@ -9,6 +9,7 @@ from datetime import datetime, date, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, List, Tuple
 from uuid import UUID
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ from app.schemas.booking import (
 )
 from app.infra.event_bus.bus import EventBus
 from app.infra.event_bus.event import BookingCreatedEvent, BookingStatusChangedEvent
+from app.services.event_dispatcher import get_dispatcher, EventType as NotifEventType
 
 
 class BookingService:
@@ -158,7 +160,7 @@ class BookingService:
             logger.info(f"[BOOKING] Booking committed: {booking.id}")
 
             if self.event_bus:
-                self.event_bus.publish(BookingCreatedEvent(
+                await self.event_bus.publish(BookingCreatedEvent(
                     booking_id=str(booking.id),
                     client_id=str(client_id),
                     provider_id=str(request.provider_id),
@@ -167,6 +169,22 @@ class BookingService:
                         request.scheduled_time.isoformat() if request.scheduled_time else None
                     ),
                 ))
+
+            # Disparar notificaciones en-memoria (EmailService + BD)
+            asyncio.create_task(get_dispatcher().emit(
+                NotifEventType.BOOKING_CREATED,
+                {
+                    "booking_id": str(booking.id),
+                    "client_id": client_id,
+                    "provider_id": request.provider_id,
+                    "service_name": request.service_category or "Servicio",
+                    "scheduled_date": (
+                        request.scheduled_date.isoformat()
+                        if request.scheduled_date else "No especificada"
+                    ),
+                    "price": float(request.total_price or 0),
+                },
+            ))
 
             return self._booking_to_response(booking)
 
@@ -314,12 +332,22 @@ class BookingService:
         await self.db.refresh(booking)
 
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
+            await self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status="PENDING",
                 new_status="APPROVED",
                 changed_by_id=str(provider_user_id),
             ))
+
+        asyncio.create_task(get_dispatcher().emit(
+            NotifEventType.BOOKING_ACCEPTED,
+            {
+                "booking_id": str(booking_id),
+                "client_id": booking.client_id,
+                "provider_id": booking.provider_id,
+                "service_name": getattr(booking, "service_category", "Servicio") or "Servicio",
+            },
+        ))
 
         return self._booking_to_response(booking)
 
@@ -384,7 +412,7 @@ class BookingService:
 
         if self.event_bus:
             try:
-                self.event_bus.publish(BookingStatusChangedEvent(
+                await self.event_bus.publish(BookingStatusChangedEvent(
                     booking_id=str(booking_id),
                     previous_status=str(previous_status),
                     new_status="CANCELLED",
@@ -422,7 +450,7 @@ class BookingService:
 
         if self.event_bus:
             try:
-                self.event_bus.publish(BookingStatusChangedEvent(
+                await self.event_bus.publish(BookingStatusChangedEvent(
                     booking_id=str(booking_id),
                     previous_status="PENDING",
                     new_status="APPROVED",
@@ -430,6 +458,16 @@ class BookingService:
                 ))
             except Exception as e:
                 logger.warning(f"[ACCEPT] event_bus publish skipped: {e}")
+
+        asyncio.create_task(get_dispatcher().emit(
+            NotifEventType.BOOKING_ACCEPTED,
+            {
+                "booking_id": str(booking_id),
+                "client_id": booking.client_id,
+                "provider_id": booking.provider_id,
+                "service_name": getattr(booking, "service_category", "Servicio") or "Servicio",
+            },
+        ))
         return self._booking_to_response(booking)
 
     async def reject_booking(self, booking_id: int, user_id: int) -> BookingResponse:
@@ -458,12 +496,23 @@ class BookingService:
         await self.db.refresh(booking)
 
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
+            await self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status="PENDING",
                 new_status="REJECTED",
                 changed_by_id=str(user_id),
             ))
+
+        asyncio.create_task(get_dispatcher().emit(
+            NotifEventType.BOOKING_REJECTED,
+            {
+                "booking_id": str(booking_id),
+                "client_id": booking.client_id,
+                "provider_id": booking.provider_id,
+                "service_name": getattr(booking, "service_category", "Servicio") or "Servicio",
+                "rejection_reason": "El proveedor no está disponible en ese momento",
+            },
+        ))
         return self._booking_to_response(booking)
 
     async def complete_booking(self, booking_id: int, user_id: int) -> BookingResponse:
@@ -494,7 +543,7 @@ class BookingService:
         await self.db.refresh(booking)
 
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
+            await self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status=str(previous_status),
                 new_status="COMPLETED",
@@ -532,7 +581,7 @@ class BookingService:
         await self.db.refresh(booking)
 
         if self.event_bus:
-            self.event_bus.publish(BookingStatusChangedEvent(
+            await self.event_bus.publish(BookingStatusChangedEvent(
                 booking_id=str(booking_id),
                 previous_status=str(previous_status),
                 new_status="CANCELLED",
