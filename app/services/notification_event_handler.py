@@ -14,8 +14,12 @@ from typing import Optional
 import asyncio
 import logging
 
-
 logger = logging.getLogger(__name__)
+
+
+def _get_connection_manager():
+    from app.api.websocket.connection_manager import connection_manager
+    return connection_manager
 
 
 class NotificationEventHandler:
@@ -95,7 +99,7 @@ class NotificationEventHandler:
                     
                     # Create notification in database
                     notification_service = NotificationService(db)
-                    await notification_service.create_notification(
+                    notif = await notification_service.create_notification(
                         user_id=provider_id,
                         notification_type="booking_received",
                         title="Nueva Reserva Recibida",
@@ -103,6 +107,22 @@ class NotificationEventHandler:
                         related_entity_type="booking",
                         related_entity_id=int(booking_id) if booking_id else None,
                     )
+
+                    # Push WebSocket en tiempo real
+                    try:
+                        cm = _get_connection_manager()
+                        await cm.broadcast_to_user(provider_id, {
+                            **cm.format_notification(
+                                notification_id=notif.id,
+                                notification_type="booking_received",
+                                title="Nueva Reserva Recibida",
+                                content=f"Nueva reserva de {client_name} para {service_name} el {scheduled_date}",
+                                related_entity_id=int(booking_id) if booking_id else None,
+                            ),
+                            "channel": "notification",
+                        })
+                    except Exception as ws_e:
+                        logger.warning(f"   ⚠️  WebSocket push skipped: {ws_e}")
                     
                     # Send Email
                     email_service = self._get_email_service()
@@ -208,7 +228,7 @@ class NotificationEventHandler:
                     
                     # Create notification in database
                     notification_service = NotificationService(db)
-                    await notification_service.create_notification(
+                    notif = await notification_service.create_notification(
                         user_id=client_id,
                         notification_type="booking_confirmed",
                         title="Reserva Aceptada",
@@ -216,6 +236,22 @@ class NotificationEventHandler:
                         related_entity_type="booking",
                         related_entity_id=int(booking_id) if booking_id else None,
                     )
+
+                    # Push WebSocket en tiempo real
+                    try:
+                        cm = _get_connection_manager()
+                        await cm.broadcast_to_user(client_id, {
+                            **cm.format_notification(
+                                notification_id=notif.id,
+                                notification_type="booking_confirmed",
+                                title="Reserva Aceptada",
+                                content=f"{provider_name} ha aceptado tu reserva para {service_name}",
+                                related_entity_id=int(booking_id) if booking_id else None,
+                            ),
+                            "channel": "notification",
+                        })
+                    except Exception as ws_e:
+                        logger.warning(f"   ⚠️  WebSocket push skipped: {ws_e}")
                     
                     # Send Email
                     email_service = self._get_email_service()
@@ -287,7 +323,7 @@ class NotificationEventHandler:
                     
                     # Create notification in database
                     notification_service = NotificationService(db)
-                    await notification_service.create_notification(
+                    notif = await notification_service.create_notification(
                         user_id=client_id,
                         notification_type="booking_rejected",
                         title="Reserva Rechazada",
@@ -295,6 +331,22 @@ class NotificationEventHandler:
                         related_entity_type="booking",
                         related_entity_id=int(booking_id) if booking_id else None,
                     )
+
+                    # Push WebSocket en tiempo real
+                    try:
+                        cm = _get_connection_manager()
+                        await cm.broadcast_to_user(client_id, {
+                            **cm.format_notification(
+                                notification_id=notif.id,
+                                notification_type="booking_rejected",
+                                title="Reserva Rechazada",
+                                content=f"{provider_name} ha rechazado tu reserva para {service_name}",
+                                related_entity_id=int(booking_id) if booking_id else None,
+                            ),
+                            "channel": "notification",
+                        })
+                    except Exception as ws_e:
+                        logger.warning(f"   ⚠️  WebSocket push skipped: {ws_e}")
                     
                     # Send Email
                     email_service = self._get_email_service()
