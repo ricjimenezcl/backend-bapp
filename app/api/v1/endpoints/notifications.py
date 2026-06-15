@@ -1,13 +1,18 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 from typing import List
+import logging
 
 from app.core.database import get_db_async
 from app.dependencies import get_current_active_user
 from app.models.user import User
+from app.models.notification import Notification
 from app.schemas.notification import NotificationSchema
 from app.services.notification_service import NotificationService
 from app.infra.redis.cache import get_notifications_cache, set_notifications_cache
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -31,6 +36,21 @@ async def get_notifications(
     set_notifications_cache(current_user.id, serialized)
     logger.info(f"✅ [CACHE] Guardado notificaciones ({current_user.id})")
     return notifications
+
+@router.patch("/mark-all-read")
+async def mark_all_notifications_read(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Marcar todas las notificaciones del usuario como leídas"""
+    await db.execute(
+        update(Notification)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .values(is_read=True)
+    )
+    await db.commit()
+    return {"ok": True}
+
 
 @router.patch("/{notification_id}/read", response_model=NotificationSchema)
 async def mark_notification_read(
