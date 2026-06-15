@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.user import User
 from app.models.provider import Provider
-from app.core.database import get_db_async
+from app.core.database import AsyncSessionLocal
 from typing import Optional
 import asyncio
 import logging
@@ -68,8 +68,7 @@ class NotificationEventHandler:
             
             logger.info(f"📬 Processing BOOKING_CREATED for provider {provider_id}")
             
-            # Get database session
-            async for db in get_db_async():
+            async with AsyncSessionLocal() as db:
                 try:
                     # Get provider user
                     result = await db.execute(
@@ -183,8 +182,7 @@ class NotificationEventHandler:
             
             logger.info(f"📬 Processing BOOKING_ACCEPTED for client {client_id}")
             
-            # Get database session
-            async for db in get_db_async():
+            async with AsyncSessionLocal() as db:
                 try:
                     # Get client user
                     result = await db.execute(
@@ -268,8 +266,7 @@ class NotificationEventHandler:
             
             logger.info(f"📬 Processing BOOKING_REJECTED for client {client_id}")
             
-            # Get database session
-            async for db in get_db_async():
+            async with AsyncSessionLocal() as db:
                 try:
                     # Get client user
                     result = await db.execute(
