@@ -10,7 +10,6 @@ from app.models.user import User
 from app.models.notification import Notification
 from app.schemas.notification import NotificationSchema
 from app.services.notification_service import NotificationService
-from app.infra.redis.cache import get_notifications_cache, set_notifications_cache
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +21,9 @@ async def get_notifications(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_async)
 ):
-    """
-    Obtener mis notificaciones (recientes) con cache best-effort
-    """
-    cached = get_notifications_cache(current_user.id)
-    if cached and isinstance(cached, list):
-        logger.info(f"✅ [CACHE] Notificaciones hit ({current_user.id})")
-        return cached
+    """Obtener mis notificaciones (recientes)"""
     service = NotificationService(db)
     notifications, _ = await service.get_user_notifications(current_user.id, skip=0, limit=50)
-    # Serialize to dicts before caching so Redis can store them as JSON
-    serialized = [NotificationSchema.model_validate(n).model_dump(mode="json") for n in notifications]
-    set_notifications_cache(current_user.id, serialized)
-    logger.info(f"✅ [CACHE] Guardado notificaciones ({current_user.id})")
     return notifications
 
 @router.patch("/mark-all-read")
