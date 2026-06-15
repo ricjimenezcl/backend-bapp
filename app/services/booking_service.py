@@ -858,9 +858,7 @@ class BookingService:
     # CONVERSIONES (no tocan la BD)
     # =========================================================================
 
-    def _booking_to_response(self, booking: Booking) -> BookingResponse:
-        # Verificar si ya existe una review para este booking
-        has_review = bool(booking.reviews) if hasattr(booking, 'reviews') and booking.reviews is not None else False
+    def _booking_to_response(self, booking: Booking, has_review: bool = False) -> BookingResponse:
         return BookingResponse(
             id=str(booking.id),
             client_id=str(booking.client_id),

@@ -100,14 +100,9 @@ class NotificationEventHandler:
                         user_id=provider_id,
                         notification_type="booking_received",
                         title="Nueva Reserva Recibida",
-                        message=f"Nueva reserva de {client_name} para {service_name} el {scheduled_date}",
-                        data={
-                            "booking_id": booking_id,
-                            "client_id": client_id,
-                            "service_name": service_name,
-                            "scheduled_date": scheduled_date,
-                            "price": price
-                        }
+                        content=f"Nueva reserva de {client_name} para {service_name} el {scheduled_date}",
+                        related_entity_type="booking",
+                        related_entity_id=int(booking_id) if booking_id else None,
                     )
                     
                     # Send Email
@@ -217,14 +212,11 @@ class NotificationEventHandler:
                     notification_service = NotificationService(db)
                     await notification_service.create_notification(
                         user_id=client_id,
-                        notification_type="booking_accepted",
+                        notification_type="booking_confirmed",
                         title="Reserva Aceptada",
-                        message=f"{provider_name} ha aceptado tu reserva para {service_name}",
-                        data={
-                            "booking_id": booking_id,
-                            "provider_id": provider_id,
-                            "service_name": service_name
-                        }
+                        content=f"{provider_name} ha aceptado tu reserva para {service_name}",
+                        related_entity_type="booking",
+                        related_entity_id=int(booking_id) if booking_id else None,
                     )
                     
                     # Send Email
@@ -302,13 +294,9 @@ class NotificationEventHandler:
                         user_id=client_id,
                         notification_type="booking_rejected",
                         title="Reserva Rechazada",
-                        message=f"{provider_name} ha rechazado tu reserva para {service_name}",
-                        data={
-                            "booking_id": booking_id,
-                            "provider_id": provider_id,
-                            "service_name": service_name,
-                            "rejection_reason": rejection_reason
-                        }
+                        content=f"{provider_name} ha rechazado tu reserva para {service_name}",
+                        related_entity_type="booking",
+                        related_entity_id=int(booking_id) if booking_id else None,
                     )
                     
                     # Send Email
