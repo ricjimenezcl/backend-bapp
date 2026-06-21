@@ -17,6 +17,7 @@ from app.schemas.user import UserResponse, ClientRegister, Token
 from app.schemas.provider import ProviderRegister, ProviderResponse
 from pydantic import BaseModel, EmailStr, ValidationError
 from app.services.auth_service import AuthService
+from app.services.email_service import email_service
 from app.core.config import settings
 from app.core.redis import rate_limit, cache_set
 
@@ -84,6 +85,25 @@ async def reset_password(
         user.reset_token_expiration = expiration
         await db.commit()
         logger.info(f"Password reset token generated for {email}")
+
+        # Enviar correo de recuperación
+        try:
+            # Obtener nombre del perfil (si existe) o usar email como fallback
+            full_name = "Usuario"
+            if user.role == "CLIENT" and hasattr(user, 'client_profile') and user.client_profile:
+                full_name = user.client_profile.full_name
+            elif user.role == "PROVIDER" and hasattr(user, 'provider_profile') and user.provider_profile:
+                full_name = user.provider_profile.full_name
+            
+            await email_service.send_password_reset_email(
+                email=user.email,
+                user_name=full_name,
+                token=reset_token
+            )
+            logger.info(f"Password reset email sent to {email}")
+        except Exception as e:
+            logger.error(f"Error sending password reset email to {email}: {e}")
+
     return JSONResponse({"message": "Si el correo existe, recibirás instrucciones para restablecer tu contraseña."})
 
 # Endpoint para establecer nueva contraseña

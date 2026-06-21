@@ -97,6 +97,17 @@ class EmailService:
         html = self._render(template, {"user_name": user_name})
         return await self._send(email, subject, html)
 
+    async def send_password_reset_email(self, email: str, user_name: str, token: str) -> bool:
+        """Envia correo para restablecer contraseña"""
+        subject = "Recuperar contraseña - BAPP Search"
+        reset_url = f"{settings.FRONTEND_URL}/auth/set-new-password?token={token}"
+        
+        html = self._render("password_reset", {
+            "user_name": user_name,
+            "reset_url": reset_url
+        })
+        return await self._send(email, subject, html)
+
     async def send_booking_created(self, client_email: str, provider_email: str, data: Dict[str, Any]) -> bool:
         """Envia correos de confirmación de reserva a ambos"""
         # Para el Cliente
@@ -147,3 +158,6 @@ class EmailService:
         })
         
         return await self._send(email, f"Actualización de Reserva: {title}", html)
+
+# Export singleton instance
+email_service = EmailService()
