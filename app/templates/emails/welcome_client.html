@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>¡Hola, {{ user_name }}! 👋</h2>
+    <p>Bienvenido a <span class="highlight">BAPP Search</span>. Estamos encantados de tenerte con nosotros.</p>
+    <p>Ahora puedes encontrar y contactar a los mejores proveedores de servicios cerca de ti, todo desde una sola plataforma fácil de usar.</p>
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/search" class="button">Explorar Servicios</a>
+    </div>
+    <p>¿Qué puedes hacer hoy?</p>
+    <ul>
+        <li>Buscar electricistas, gasfíteres, peluqueros y más.</li>
+        <li>Chatear directamente con los proveedores.</li>
+        <li>Reservar servicios con total seguridad.</li>
+    </ul>
+    <div class="divider"></div>
+    <p>Si tienes alguna duda, nuestro equipo de soporte está aquí para ayudarte.</p>
+{% endblock %}

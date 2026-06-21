@@ -1,0 +1,17 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>¡Hola, {{ user_name }}! 🚀</h2>
+    <p>Bienvenido a la red de proveedores de <span class="highlight">BAPP Search</span>.</p>
+    <p>Estamos aquí para ayudarte a hacer crecer tu negocio y conectar con miles de clientes potenciales que buscan tus servicios.</p>
+    <p>El siguiente paso es completar tu perfil para que todos puedan verte.</p>
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/profile" class="button">Completar mi Perfil</a>
+    </div>
+    <div class="divider"></div>
+    <p><strong>Consejos para el éxito:</strong></p>
+    <ul>
+        <li>Sube fotos reales de tus trabajos.</li>
+        <li>Mantén tus horarios actualizados.</li>
+        <li>Responde rápido a los mensajes para ganar reputación.</li>
+    </ul>
+{% endblock %}

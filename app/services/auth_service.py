@@ -11,6 +11,7 @@ from app.models.provider import Provider
 from app.schemas.user import ClientRegister, Token
 from app.schemas.provider import ProviderRegister
 from app.core.config import settings
+from app.services.email_service import email_service
 
 EMAIL_ALREADY_REGISTERED = "Email already registered"
 RUN_ALREADY_REGISTERED = "RUN already registered"
@@ -113,6 +114,17 @@ class AuthService:
         self.db.add(profile)
         await self.db.commit()
         
+        # Enviar correo de bienvenida
+        try:
+            await email_service.send_welcome_email(
+                email=user.email,
+                user_name=client_data.full_name,
+                role="CLIENT"
+            )
+        except Exception as e:
+            # No bloqueamos el registro si falla el correo
+            print(f"Error sending welcome email: {e}")
+        
         return user
 
     async def register_provider(self, provider_data: ProviderRegister) -> Provider:
@@ -168,6 +180,16 @@ class AuthService:
         self.db.add(provider)
         await self.db.commit()
         await self.db.refresh(provider)
+        
+        # Enviar correo de bienvenida
+        try:
+            await email_service.send_welcome_email(
+                email=user.email,
+                user_name=provider_data.full_name,
+                role="PROVIDER"
+            )
+        except Exception as e:
+            print(f"Error sending welcome email to provider: {e}")
         
         # Asignar campos adicionales para la respuesta (hack para cumplir con Pydantic si es necesario)
         provider.email = user.email

@@ -17,7 +17,8 @@ from app.schemas.monetization import (
     TransactionUpdate,
     TransactionResponse
 )
-
+import asyncio
+from app.services.email_service import email_service
 
 class TransactionService:
     """Service for managing transactions and benefit activation"""
@@ -258,6 +259,28 @@ class TransactionService:
         
         db.commit()
         db.refresh(transaction)
+
+        # Enviar correo de confirmación de compra
+        try:
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                pass
+            
+            email_data = {
+                "item_name": product.name,
+                "amount": f"{transaction.amount:,.0f} {transaction.currency}",
+                "date": transaction.activated_at.strftime("%d/%m/%Y %H:%M"),
+                "reference_id": str(transaction.id)
+            }
+            
+            if loop and loop.is_running():
+                loop.create_task(email_service.send_purchase_confirmation(user.email, email_data))
+            else:
+                asyncio.run(email_service.send_purchase_confirmation(user.email, email_data))
+        except Exception as e:
+            print(f"Error sending purchase confirmation email: {e}")
         
         return transaction
 

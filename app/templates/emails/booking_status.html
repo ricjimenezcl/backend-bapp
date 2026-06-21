@@ -1,0 +1,26 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+
+    <div style="background: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top: 0;">Detalles de la Reserva:</h3>
+        <p><strong>Servicio:</strong> {{ service_name }}</p>
+        <p><strong>Fecha/Hora:</strong> {{ booking_date }}</p>
+        {% if is_provider %}
+            <p><strong>Cliente:</strong> {{ other_party_name }}</p>
+        {% else %}
+            <p><strong>Proveedor:</strong> {{ other_party_name }}</p>
+        {% endif %}
+        <p><strong>Ubicación:</strong> {{ location }}</p>
+    </div>
+
+    {% if action_url %}
+    <div style="text-align: center;">
+        <a href="{{ action_url }}" class="button">{{ action_text }}</a>
+    </div>
+    {% endif %}
+
+    <div class="divider"></div>
+    <p style="font-size: 14px;">Si necesitas cancelar o reprogramar, por favor hazlo a través de la aplicación lo antes posible.</p>
+{% endblock %}
