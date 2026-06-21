@@ -16,8 +16,8 @@ class ProviderRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
-    phone: Optional[str] = None
-    run: Optional[str] = None
+    phone: str
+    run: str
     bio: Optional[str] = None
     avatar: Optional[str] = None
     identity_document: Optional[str] = None  # base64 o url temporal

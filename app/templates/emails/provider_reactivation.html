@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>Vuelve a activar tu perfil</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Hace tiempo que no vemos actividad en tu cuenta.</p>
+    <p>Actualiza tu perfil y vuelve a aparecer ante clientes cercanos.</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/profile" class="button">🚀 Reactivar perfil</a>
+    </div>
+
+    <div class="divider"></div>
+    <p>Hay clientes buscando servicios en tu zona en este momento.</p>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}

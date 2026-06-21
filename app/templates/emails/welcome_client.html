@@ -1,17 +1,43 @@
 {% extends "emails/base.html" %}
 {% block content %}
-    <h2>¡Hola, {{ user_name }}! 👋</h2>
-    <p>Bienvenido a <span class="highlight">BAPP Search</span>. Estamos encantados de tenerte con nosotros.</p>
-    <p>Ahora puedes encontrar y contactar a los mejores proveedores de servicios cerca de ti, todo desde una sola plataforma fácil de usar.</p>
-    <div style="text-align: center;">
-        <a href="{{ frontend_url }}/search" class="button">Explorar Servicios</a>
-    </div>
-    <p>¿Qué puedes hacer hoy?</p>
-    <ul>
-        <li>Buscar electricistas, gasfíteres, peluqueros y más.</li>
-        <li>Chatear directamente con los proveedores.</li>
-        <li>Reservar servicios con total seguridad.</li>
-    </ul>
+    <div class="preheader">Encuentra profesionales cerca de ti en minutos.</div>
+    
+    <h2>¡Bienvenido a BappSearch!</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Gracias por registrarte en BappSearch.</p>
+    <p>Ahora tienes acceso a una comunidad de profesionales verificados listos para ayudarte con servicios cerca de tu ubicación.</p>
+    <p>Ya sea que necesites un electricista, peluquera, cuidador de mascotas, profesor particular, técnico computacional o cualquier otro servicio, podrás encontrarlos fácilmente desde la plataforma.</p>
+
     <div class="divider"></div>
-    <p>Si tienes alguna duda, nuestro equipo de soporte está aquí para ayudarte.</p>
+
+    <h3>¿Qué puedes hacer ahora?</h3>
+    <p>✅ Buscar proveedores cerca de ti</p>
+    <p>✅ Ver perfiles y reseñas</p>
+    <p>✅ Solicitar reservas</p>
+    <p>✅ Guardar proveedores favoritos</p>
+    <p>✅ Gestionar tus solicitudes desde tu cuenta</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/search" class="button">🔍 Buscar servicios</a>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>Categorías populares</h3>
+    <div style="text-align: center;">
+        <span class="badge">🏠 Construcción y Hogar</span>
+        <span class="badge">💇 Belleza y Cuidado Personal</span>
+        <span class="badge">🐶 Cuidado de Mascotas</span>
+        <span class="badge">👵 Cuidado de Adultos Mayores</span>
+        <span class="badge">📚 Clases y Tutorías</span>
+        <span class="badge">🚚 Traslados y Mudanzas</span>
+        <span class="badge">🔧 Reparaciones Generales</span>
+    </div>
+
+    <div class="divider"></div>
+    
+    <p>Miles de profesionales están esperando ayudarte.</p>
+    <p>Gracias por confiar en BappSearch.</p>
+    <p><strong>Equipo BappSearch</strong></p>
 {% endblock %}

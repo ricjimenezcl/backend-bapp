@@ -1,0 +1,22 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>Los perfiles verificados reciben más solicitudes</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Los clientes prefieren contratar profesionales con identidad verificada.</p>
+    <p>Completar este proceso toma solo unos minutos.</p>
+
+    <div class="divider"></div>
+
+    <h3>Beneficios</h3>
+    <p>✅ Más confianza</p>
+    <p>✅ Mayor visibilidad</p>
+    <p>✅ Más oportunidades</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/verify" class="button">🔒 Verificar identidad</a>
+    </div>
+
+    <div class="divider"></div>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}

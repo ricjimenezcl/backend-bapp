@@ -72,8 +72,9 @@ class Settings(BaseSettings):
     # Frontend URL (para links en emails)
     FRONTEND_URL: str = Field(default="http://localhost:8100")
 
-    # Amazon SES Email Service
-    SES_FROM_EMAIL: str = Field(default="noreply@bappsearch.com")
+    # Resend Email Service
+    RESEND_API_KEY: Optional[str] = Field(default=None)
+    RESEND_FROM_EMAIL: str = Field(default="BAPP <onboarding@resend.dev>")
     
     # AWS Rekognition - Face verification
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)

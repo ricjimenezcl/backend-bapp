@@ -15,6 +15,7 @@ from app.services.email_service import email_service
 
 EMAIL_ALREADY_REGISTERED = "Email already registered"
 RUN_ALREADY_REGISTERED = "RUN already registered"
+PHONE_ALREADY_REGISTERED = "Phone already registered"
 
 class AuthService:
     def __init__(self, db: AsyncSession):
@@ -86,6 +87,15 @@ class AuthService:
                 detail=EMAIL_ALREADY_REGISTERED
             )
         
+        # Verificar si el teléfono ya existe en perfiles de cliente
+        result = await self.db.execute(select(UserProfile).where(UserProfile.phone == client_data.phone))
+        existing_profile = result.scalar_one_or_none()
+        if existing_profile:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=PHONE_ALREADY_REGISTERED
+            )
+        
         # Crear usuario CLIENTE
         hashed_password = self.get_password_hash(client_data.password)
         
@@ -96,7 +106,7 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             terms_accepted=getattr(client_data, 'terms_accepted', False),
-            terms_accepted_at=datetime.utcnow() if getattr(client_data, 'terms_accepted', False) else None,
+            terms_accepted_at=datetime.now(timezone.utc) if getattr(client_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(client_data, 'email_opt_in', False),
         )
 
@@ -149,6 +159,15 @@ class AuthService:
                     detail=RUN_ALREADY_REGISTERED
                 )
         
+        # Verificar si el teléfono ya existe en proveedores
+        result = await self.db.execute(select(Provider).where(Provider.phone == provider_data.phone))
+        existing_provider_phone = result.scalar_one_or_none()
+        if existing_provider_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=PHONE_ALREADY_REGISTERED
+            )
+        
         # Crear usuario PROVEEDOR
         hashed_password = self.get_password_hash(provider_data.password)
         
@@ -159,7 +178,7 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             terms_accepted=getattr(provider_data, 'terms_accepted', False),
-            terms_accepted_at=datetime.utcnow() if getattr(provider_data, 'terms_accepted', False) else None,
+            terms_accepted_at=datetime.now(timezone.utc) if getattr(provider_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(provider_data, 'email_opt_in', False),
         )
 

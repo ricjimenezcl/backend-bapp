@@ -1,0 +1,16 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>¡Buenas noticias!</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Un cliente está interesado en tus servicios.</p>
+    <p>Ingresa a tu panel para revisar los detalles y responder.</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/bookings" class="button">📩 Ver solicitud</a>
+    </div>
+
+    <div class="divider"></div>
+    <p>Gracias por formar parte de BappSearch.</p>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}

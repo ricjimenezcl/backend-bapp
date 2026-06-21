@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>¿Aún no realizas tu primera búsqueda?</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Miles de proveedores están disponibles en BappSearch.</p>
+    <p>Encuentra ayuda para:</p>
+    
+    <div style="text-align: center; margin: 20px 0;">
+        <span class="badge">🏠 Hogar</span>
+        <span class="badge">💇 Belleza</span>
+        <span class="badge">🐶 Mascotas</span>
+        <span class="badge">📚 Clases</span>
+        <span class="badge">🚚 Mudanzas</span>
+    </div>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/search" class="button">🔍 Buscar ahora</a>
+    </div>
+
+    <div class="divider"></div>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}

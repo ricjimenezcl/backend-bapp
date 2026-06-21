@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>Tu perfil está casi listo</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Notamos que todavía no has publicado ningún servicio.</p>
+    <p>Recuerda que los clientes solo pueden encontrarte cuando tengas servicios activos.</p>
+
+    <div class="divider"></div>
+
+    <h3>Solo te faltan 3 pasos</h3>
+    <p>✅ Completar perfil</p>
+    <p>✅ Verificar identidad</p>
+    <p>✅ Publicar servicio</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/profile" class="button">🚀 Completar mi perfil</a>
+    </div>
+
+    <div class="divider"></div>
+    <p>Gracias por confiar en BappSearch.</p>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}

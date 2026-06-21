@@ -1,17 +1,42 @@
 {% extends "emails/base.html" %}
 {% block content %}
-    <h2>¡Hola, {{ user_name }}! 🚀</h2>
-    <p>Bienvenido a la red de proveedores de <span class="highlight">BAPP Search</span>.</p>
-    <p>Estamos aquí para ayudarte a hacer crecer tu negocio y conectar con miles de clientes potenciales que buscan tus servicios.</p>
-    <p>El siguiente paso es completar tu perfil para que todos puedan verte.</p>
-    <div style="text-align: center;">
-        <a href="{{ frontend_url }}/provider/profile" class="button">Completar mi Perfil</a>
-    </div>
+    <div class="preheader">Completa tu perfil y publica tus primeros servicios.</div>
+    
+    <h2>¡Bienvenido a BappSearch!</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Tu cuenta de proveedor ha sido creada exitosamente.</p>
+    <p>Ahora puedes comenzar a ofrecer tus servicios y aparecer frente a clientes que buscan profesionales en tu zona.</p>
+
     <div class="divider"></div>
-    <p><strong>Consejos para el éxito:</strong></p>
-    <ul>
-        <li>Sube fotos reales de tus trabajos.</li>
-        <li>Mantén tus horarios actualizados.</li>
-        <li>Responde rápido a los mensajes para ganar reputación.</li>
-    </ul>
+
+    <h3>Tus beneficios</h3>
+    <p>✅ <strong>Registro gratuito</strong></p>
+    <p>✅ <strong>2 servicios gratis</strong> para siempre</p>
+    <p>✅ <strong>Clientes cercanos</strong></p>
+    <p>✅ <strong>Sin comisión</strong> por trabajos realizados</p>
+    <p>✅ <strong>Tú cobras directamente</strong> al cliente</p>
+
+    <div class="divider"></div>
+
+    <h3>Próximos pasos</h3>
+    
+    <p><strong>Paso 1: Completa tu perfil profesional</strong><br>
+    Agrega: Foto, Descripción, Experiencia y Ubicación.</p>
+    
+    <p><strong>Paso 2: Verifica tu identidad</strong><br>
+    La verificación genera más confianza y aumenta tus posibilidades de recibir solicitudes.</p>
+    
+    <p><strong>Paso 3: Publica tu primer servicio</strong><br>
+    Mientras más completo sea tu perfil, más oportunidades tendrás.</p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/services/add" class="button">➕ Publicar mi primer servicio</a>
+    </div>
+
+    <div class="divider"></div>
+    
+    <p>Tu próximo cliente podría estar a pocas cuadras de distancia.</p>
+    <p>Gracias por formar parte de BappSearch.</p>
+    <p><strong>Equipo BappSearch</strong></p>
 {% endblock %}

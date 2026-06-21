@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>¡Felicitaciones!</h2>
+    <p>Hola <strong>{{ user_name }}</strong>,</p>
+    
+    <p>Tu servicio ya está visible en BappSearch.</p>
+    <p>Ahora los clientes pueden encontrarte y enviarte solicitudes.</p>
+
+    <div class="divider"></div>
+
+    <h3>Recomendaciones</h3>
+    <p>📸 <strong>Agrega fotografías</strong></p>
+    <p>⭐ <strong>Solicita reseñas</strong></p>
+    <p>📝 <strong>Mantén tu información actualizada</strong></p>
+    <p>📍 <strong>Verifica tu ubicación</strong></p>
+
+    <div style="text-align: center;">
+        <a href="{{ frontend_url }}/provider/profile" class="button">👀 Ver mi perfil</a>
+    </div>
+
+    <div class="divider"></div>
+    <p><strong>Equipo BappSearch</strong></p>
+{% endblock %}
