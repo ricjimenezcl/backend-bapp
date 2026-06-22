@@ -24,7 +24,9 @@ from sqlalchemy.future import select
 from fastapi import HTTPException, status
 
 from app.models.user import User, UserProfile
+from app.models.provider import Provider
 from app.services.auth_service import AuthService
+from app.services.email_service import email_service
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ class OAuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.auth_service = AuthService(db)
+        self.email_service = email_service
 
     # ─── Google ────────────────────────────────────────────────────────────────
 
@@ -272,8 +275,26 @@ class OAuthService:
                 avatar=avatar_url,
             )
             self.db.add(profile)
+        elif role == "PROVIDER":
+            provider_profile = Provider(
+                user_id=new_user.id,
+                full_name=full_name,
+                avatar=avatar_url,
+            )
+            self.db.add(provider_profile)
 
         await self.db.commit()
         await self.db.refresh(new_user)
+
+        # Enviar correo de bienvenida (asíncrono)
+        try:
+            await self.email_service.send_welcome_email(
+                email=new_user.email,
+                user_name=full_name,
+                role=role
+            )
+        except Exception as e:
+            logger.error(f"[OAUTH] Error enviando correo de bienvenida a {email}: {str(e)}")
+
         logger.info(f"[OAUTH] Nuevo usuario creado via {oauth_provider}: {email} (id={new_user.id})")
         return new_user
