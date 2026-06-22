@@ -161,3 +161,7 @@ class EmailService:
 
 # Export singleton instance
 email_service = EmailService()
+
+def get_email_service() -> EmailService:
+    """Helper for dependency injection or standalone use"""
+    return email_service

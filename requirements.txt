@@ -64,6 +64,7 @@ twilio==8.10.0
 
 # Email Service
 boto3==1.34.69
+resend==2.2.0
 
 # Templating
 jinja2==3.1.2
