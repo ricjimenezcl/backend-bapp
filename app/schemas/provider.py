@@ -16,8 +16,8 @@ class ProviderRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
-    phone: str
-    run: str
+    phone: Optional[str] = None
+    run: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
     identity_document: Optional[str] = None  # base64 o url temporal
@@ -121,9 +121,9 @@ class ProviderResponse(BaseModel):
     user_id: int
     run: Optional[str] = None
     full_name: str
-    phone: Optional[str]
-    avatar: Optional[str]
-    bio: Optional[str]
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
+    bio: Optional[str] = None
     rating_avg: Decimal
     created_at: datetime
     updated_at: datetime
@@ -133,6 +133,7 @@ class ProviderResponse(BaseModel):
     selfie_url: Optional[str] = None
     validation_status: Optional[str] = None
     validation_notes: Optional[str] = None
+    is_profile_complete: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -140,7 +141,7 @@ class ServiceProviderCreateRequest(BaseModel):
     servicio: int  # main_category_id
     categoria: int  # service_category_id
     nombre_prestador: str
-    fono: str
+    fono: Optional[str] = None
     detalle: Optional[str] = None
     direccion: str
     lat: Decimal
@@ -158,7 +159,7 @@ class ServiceProviderCreate(BaseModel):
     address: str
     latitude: Decimal
     longitude: Decimal
-    phone: str
+    phone: Optional[str] = None
     hourly_rate: Optional[Decimal] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -213,8 +214,8 @@ class ServiceProviderCreateResponse(BaseModel):
 class ServiceCategoryResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str]
-    icon: Optional[str]
+    description: Optional[str] = None
+    icon: Optional[str] = None
     parent_category: Optional[str] = None  
     is_active: bool
     main_category_id: Optional[int]
@@ -236,8 +237,8 @@ class ServiceProviderWithCategoryResponse(BaseModel):
     latitude: Decimal
     longitude: Decimal
     distance: Decimal
-    phone: str
-    hourly_rate: Optional[Decimal]
+    phone: Optional[str] = None
+    hourly_rate: Optional[Decimal] = None
     is_available: bool
     validation_status: str
     rating_avg: Decimal

@@ -132,6 +132,17 @@ class ProviderService:
                     detail="Provider not found"
                 )
 
+            # Validar que el proveedor tenga RUN y teléfono completados antes de publicar un servicio
+            if not provider.run or not provider.phone:
+                missing_fields = []
+                if not provider.run: missing_fields.append("RUT (RUN)")
+                if not provider.phone: missing_fields.append("teléfono")
+                
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Perfil incompleto: Debe completar su {', '.join(missing_fields)} antes de publicar un servicio."
+                )
+
             # Verificar que no existe un servicio duplicado
             result = await self.db.execute(
                 select(ServiceProvider).where(
@@ -212,6 +223,7 @@ class ProviderService:
         # Inyectar campos del usuario para cumplir con ProviderResponse
         provider.email = provider.user.email
         provider.status = provider.user.status
+        provider.is_profile_complete = bool(provider.run and provider.phone)
         
         # avatar es VARCHAR(500) con URL de Cloudinary, se devuelve directo
         return provider
@@ -292,6 +304,11 @@ class ProviderService:
         await self.db.commit()
         await self.db.refresh(provider)
         
+        # Inyectar campos necesarios para ProviderResponse
+        provider.email = provider.user.email
+        provider.status = provider.user.status
+        provider.is_profile_complete = bool(provider.run and provider.phone)
+
         # Invalidate provider caches (best-effort)
         try:
             await redis_client.delete(f"provider:profile:{provider.id}")

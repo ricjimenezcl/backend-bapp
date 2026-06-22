@@ -118,7 +118,8 @@ async def validate_identity(
         identity_document_url=provider.identity_document_url,
         selfie_url=provider.selfie_url,
         validation_status=provider.validation_status,
-        validation_notes=provider.validation_notes
+        validation_notes=provider.validation_notes,
+        is_profile_complete=bool(provider.run and provider.phone)
     )
 
 
@@ -201,6 +202,7 @@ async def get_my_provider_stats(
         "completed_bookings": row.completed or 0,
         "total_earnings": 0.0,
         "rating_avg": float(provider.rating_avg) if provider.rating_avg else 0.0,
+        "is_profile_complete": bool(provider.run and provider.phone),
     }
 
 
@@ -1019,6 +1021,17 @@ async def create_service_provider(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Provider profile not found for this user"
+            )
+        
+        # Validar perfil completo (RUN y teléfono)
+        if not provider.run or not provider.phone:
+            missing_fields = []
+            if not provider.run: missing_fields.append("RUN (RUT)")
+            if not provider.phone: missing_fields.append("teléfono")
+            
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Perfil incompleto: Debes registrar tu {', '.join(missing_fields)} en tu perfil antes de crear servicios."
             )
         
         # DEPURACIÓN: Verificar qué provider se encontró

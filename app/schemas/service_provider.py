@@ -13,7 +13,7 @@ class ServiceProviderBaseSchema(BaseModel):
     address: str
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
-    phone: str
+    phone: Optional[str] = None
     hourly_rate: Optional[Decimal] = None
 
 class ServiceProviderCreateSchema(ServiceProviderBaseSchema):
