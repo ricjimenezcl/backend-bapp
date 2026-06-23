@@ -178,6 +178,9 @@ class OAuthService:
                 avatar_url=avatar_url,
                 role=role,
             )
+        else:
+            # Asegurar que el perfil exista incluso si el usuario ya existía
+            await self._ensure_profile_exists(user, full_name, avatar_url)
 
         if user.status == "SUSPENDED":
             raise HTTPException(
@@ -185,13 +188,29 @@ class OAuthService:
                 detail="Cuenta suspendida. Contacta al soporte.",
             )
 
+        # Recargar para asegurar que las relaciones estén al día
+        await self.db.refresh(user)
+
         # Resolver provider_id / client_id para el token
         provider_id = None
         client_id = None
-        if user.role == "PROVIDER" and user.provider_profile:
-            provider_id = user.provider_profile.id
-        if user.role == "CLIENT" and user.client_profile:
-            client_id = user.client_profile.id
+        
+        if user.role == "PROVIDER":
+            if not user.provider_profile:
+                # Intento de carga manual si refresh falló por alguna razón
+                result = await self.db.execute(select(Provider).where(Provider.user_id == user.id))
+                user.provider_profile = result.scalar_one_or_none()
+            
+            if user.provider_profile:
+                provider_id = user.provider_profile.id
+                
+        elif user.role == "CLIENT":
+            if not user.client_profile:
+                result = await self.db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+                user.client_profile = result.scalar_one_or_none()
+                
+            if user.client_profile:
+                client_id = user.client_profile.id
 
         token = self.auth_service.create_access_token(data={
             "sub": user.email,
@@ -210,11 +229,52 @@ class OAuthService:
             "provider_id": provider_id,
             "client_id": client_id,
             "email": user.email,
-            "name": full_name,
+            "name": full_name or (user.provider_profile.full_name if provider_id else None) or (user.client_profile.full_name if client_id else None),
             "avatar_url": avatar_url or user.oauth_avatar_url,
             "terms_accepted": user.terms_accepted,
             "is_new_user": is_new_user,
         }
+
+    async def _ensure_profile_exists(self, user: User, full_name: Optional[str], avatar_url: Optional[str]):
+        """Verifica que el perfil correspondiente al rol exista, si no, lo crea."""
+        # Asegurar que tengamos un nombre para el perfil
+        display_name = (full_name or "").strip()
+        if not display_name:
+            display_name = user.email.split("@")[0].capitalize()
+
+        if user.role == "CLIENT":
+            if not user.client_profile:
+                # Doble check con consulta directa
+                result = await self.db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+                profile = result.scalar_one_or_none()
+                if not profile:
+                    profile = UserProfile(
+                        user_id=user.id,
+                        full_name=display_name,
+                        avatar=avatar_url
+                    )
+                    self.db.add(profile)
+                    await self.db.commit()
+                    logger.info(f"[OAUTH] Perfil de cliente creado para usuario {user.id} ({display_name})")
+                else:
+                    user.client_profile = profile
+        
+        elif user.role == "PROVIDER":
+            if not user.provider_profile:
+                # Doble check con consulta directa
+                result = await self.db.execute(select(Provider).where(Provider.user_id == user.id))
+                provider_profile = result.scalar_one_or_none()
+                if not provider_profile:
+                    provider_profile = Provider(
+                        user_id=user.id,
+                        full_name=display_name,
+                        avatar=avatar_url
+                    )
+                    self.db.add(provider_profile)
+                    await self.db.commit()
+                    logger.info(f"[OAUTH] Perfil de proveedor creado para usuario {user.id} ({display_name})")
+                else:
+                    user.provider_profile = provider_profile
 
     async def _find_user_by_oauth(self, provider: str, oauth_id: str) -> Optional[User]:
         result = await self.db.execute(
@@ -247,7 +307,7 @@ class OAuthService:
     async def _create_oauth_user(
         self,
         email: str,
-        full_name: str,
+        full_name: Optional[str],
         oauth_provider: str,
         oauth_id: str,
         avatar_url: Optional[str],
@@ -256,6 +316,11 @@ class OAuthService:
         """Crea un nuevo usuario OAuth (sin password)."""
         if role not in ("CLIENT", "PROVIDER"):
             role = "CLIENT"
+
+        # Asegurar que tengamos un nombre para el perfil
+        display_name = (full_name or "").strip()
+        if not display_name:
+            display_name = email.split("@")[0].capitalize()
 
         new_user = User(
             email=email,
@@ -276,14 +341,14 @@ class OAuthService:
         if role == "CLIENT":
             profile = UserProfile(
                 user_id=new_user.id,
-                full_name=full_name,
+                full_name=display_name,
                 avatar=avatar_url,
             )
             self.db.add(profile)
         elif role == "PROVIDER":
             provider_profile = Provider(
                 user_id=new_user.id,
-                full_name=full_name,
+                full_name=display_name,
                 avatar=avatar_url,
             )
             self.db.add(provider_profile)
@@ -295,7 +360,7 @@ class OAuthService:
         try:
             await self.email_service.send_welcome_email(
                 email=new_user.email,
-                user_name=full_name,
+                user_name=display_name,
                 role=role
             )
         except Exception as e:
