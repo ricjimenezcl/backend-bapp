@@ -150,15 +150,18 @@ class OAuthService:
         """
         # 1. Buscar por oauth_provider + oauth_id (login directo)
         user = await self._find_user_by_oauth(oauth_provider, oauth_id)
+        is_new_user = False
 
         if not user and email:
             # 2. Buscar por email → vincular cuenta OAuth existente
             user = await self._find_user_by_email(email)
             if user:
                 await self._link_oauth_to_user(user, oauth_provider, oauth_id, avatar_url)
+                # No es nuevo, el email ya existía
 
         if not user:
             # 3. Crear nuevo usuario
+            is_new_user = True
             if not email:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -203,12 +206,14 @@ class OAuthService:
             "token_type": "bearer",
             "user_id": user.id,
             "role": user.role,
+            "status": user.status,
             "provider_id": provider_id,
             "client_id": client_id,
             "email": user.email,
             "name": full_name,
             "avatar_url": avatar_url or user.oauth_avatar_url,
             "terms_accepted": user.terms_accepted,
+            "is_new_user": is_new_user,
         }
 
     async def _find_user_by_oauth(self, provider: str, oauth_id: str) -> Optional[User]:
