@@ -44,11 +44,12 @@ def normalize_phone(phone: str) -> str:
 def validate_rut(rut: str) -> bool:
     """
     Valida RUT chileno con módulo 11.
-    Acepta formato XXXXXXXX-D donde D es dígito verificador (0-9 o K).
+    Acepta tanto formato con puntos (12.345.678-9) como sin puntos (12345678-9).
     """
     if not rut:
         return False
-    rut = rut.strip().upper()
+    # Normalizar primero: quitar puntos y espacios, mayúsculas
+    rut = rut.strip().replace('.', '').upper()
     if not _RUT_PATTERN.match(rut):
         return False
 

@@ -133,11 +133,11 @@ async def register_client(
     client_data: ClientRegister,
     db: AsyncSession = Depends(get_db_async)
 ):
-    # Rate limit: 5 registros por IP por hora
+    # Rate limit: 10 registros por IP por hora (clave separada de register-provider)
     try:
         client_ip = request.client.host if request.client else "unknown"
-        rl_key = f"rate:auth:register:{client_ip}"
-        if not rate_limit(rl_key, 5, 3600):
+        rl_key = f"rate:auth:register:client:{client_ip}"
+        if not rate_limit(rl_key, 10, 3600):
             raise HTTPException(
                 status_code=429,
                 detail="Demasiados intentos de registro. Intenta nuevamente en 1 hora."
@@ -181,20 +181,6 @@ async def register_provider(
     Accepts JSON payloads used by the web frontend and keeps
     backward compatibility with multipart/form-data submissions.
     """
-    # Rate limit: 5 registros por IP por hora
-    try:
-        client_ip = request.client.host if request.client else "unknown"
-        rl_key = f"rate:auth:register:{client_ip}"
-        if not rate_limit(rl_key, 5, 3600):
-            raise HTTPException(
-                status_code=429,
-                detail="Demasiados intentos de registro. Intenta nuevamente en 1 hora."
-            )
-    except HTTPException:
-        raise
-    except Exception:
-        pass  # fail-open
-
     auth_service = AuthService(db)
     try:
         content_type = request.headers.get("content-type", "")
@@ -217,7 +203,23 @@ async def register_provider(
                 "email_opt_in": str(form.get("email_opt_in", "false")).lower() in {"true", "1", "on", "yes"},
             }
 
+        # Validar primero — los 422 no consumen cupos de rate limit
         provider_data = ProviderRegister(**payload)
+
+        # Rate limit: 10 intentos válidos por IP por hora (clave separada de register-client)
+        try:
+            client_ip = request.client.host if request.client else "unknown"
+            rl_key = f"rate:auth:register:provider:{client_ip}"
+            if not rate_limit(rl_key, 10, 3600):
+                raise HTTPException(
+                    status_code=429,
+                    detail="Demasiados intentos de registro. Intenta nuevamente en 1 hora."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # fail-open
+
         logger.info(f"Registering PROVIDER: {provider_data.email}, RUN: {provider_data.run or 'N/A'}")
 
         if avatar and getattr(avatar, "filename", None):
