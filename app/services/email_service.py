@@ -76,6 +76,7 @@ class EmailService:
     def _render(self, template_name: str, context: Dict[str, Any]) -> str:
         """Render a template with context, including global variables"""
         if not self.jinja_env:
+            logger.error(f"❌ Jinja2 env not initialized — cannot render '{template_name}'")
             return ""
         
         # Add global context
@@ -85,18 +86,31 @@ class EmailService:
             "year": 2026
         }
         
-        template = self.jinja_env.get_template(f"emails/{template_name}.html")
-        return template.render(full_context)
+        try:
+            template = self.jinja_env.get_template(f"emails/{template_name}.html")
+            return template.render(full_context)
+        except Exception as e:
+            logger.error(f"❌ Template render failed for '{template_name}': {e}", exc_info=True)
+            return ""
 
     # ==================== PUBLIC METHODS ====================
 
     async def send_welcome_email(self, email: str, user_name: str, role: str) -> bool:
         """Envia correo de bienvenida según el rol (CLIENT/PROVIDER)"""
-        template = "welcome_client" if role == "CLIENT" else "welcome_provider"
-        subject = "¡Bienvenido a BAPP Search!" if role == "CLIENT" else "¡Bienvenido a la red de proveedores de BAPP!"
-        
-        html = self._render(template, {"user_name": user_name})
-        return await self._send(email, subject, html)
+        try:
+            template = "welcome_client" if role == "CLIENT" else "welcome_provider"
+            subject = "¡Bienvenido a BAPP Search!" if role == "CLIENT" else "¡Bienvenido a la red de proveedores de BAPP!"
+
+            html = self._render(template, {"user_name": user_name})
+            if not html:
+                logger.error(f"❌ Welcome email rendered empty for {email} (role={role}, template={template})")
+                return False
+
+            logger.info(f"📧 Enviando welcome email a {email} (role={role})")
+            return await self._send(email, subject, html)
+        except Exception as e:
+            logger.error(f"❌ send_welcome_email failed for {email} (role={role}): {e}", exc_info=True)
+            return False
 
     async def send_password_reset_email(self, email: str, user_name: str, token: str) -> bool:
         """Envia correo para restablecer contraseña"""
