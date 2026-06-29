@@ -65,11 +65,12 @@ class EmailService:
             return False
         try:
             # Importante: Resend SDK es síncrona, usamos executor
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._send_raw, to, subject, html)
+            logger.info(f"✅ Email enviado a {to}")
             return True
         except Exception as e:
-            logger.error(f"❌ Resend send failed to {to}: {str(e)}")
+            logger.error(f"❌ Resend send failed to {to}: {str(e)}", exc_info=True)
             return False
 
     def _render(self, template_name: str, context: Dict[str, Any]) -> str:

@@ -1,7 +1,10 @@
+import logging
 import uuid
 from datetime import timedelta, datetime, timezone
 
 from jose import JWTError, jwt
+
+logger = logging.getLogger(__name__)
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,14 +129,17 @@ class AuthService:
         
         # Enviar correo de bienvenida
         try:
-            await email_service.send_welcome_email(
+            sent = await email_service.send_welcome_email(
                 email=user.email,
                 user_name=client_data.full_name,
                 role="CLIENT"
             )
+            if sent:
+                logger.info(f"Welcome email sent to CLIENT {user.email}")
+            else:
+                logger.warning(f"Welcome email NOT sent to CLIENT {user.email} (send_welcome_email returned False)")
         except Exception as e:
-            # No bloqueamos el registro si falla el correo
-            print(f"Error sending welcome email: {e}")
+            logger.error(f"Error sending welcome email to CLIENT {user.email}: {e}", exc_info=True)
         
         return user
 
@@ -202,13 +208,17 @@ class AuthService:
         
         # Enviar correo de bienvenida
         try:
-            await email_service.send_welcome_email(
+            sent = await email_service.send_welcome_email(
                 email=user.email,
                 user_name=provider_data.full_name,
                 role="PROVIDER"
             )
+            if sent:
+                logger.info(f"Welcome email sent to PROVIDER {user.email}")
+            else:
+                logger.warning(f"Welcome email NOT sent to PROVIDER {user.email} (send_welcome_email returned False)")
         except Exception as e:
-            print(f"Error sending welcome email to provider: {e}")
+            logger.error(f"Error sending welcome email to PROVIDER {user.email}: {e}", exc_info=True)
         
         # Asignar campos adicionales para la respuesta (hack para cumplir con Pydantic si es necesario)
         provider.email = user.email
