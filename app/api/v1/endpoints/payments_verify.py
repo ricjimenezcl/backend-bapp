@@ -492,7 +492,7 @@ async def verify_transbank_payment(
         )
 
         try:
-            email_service.send_purchase_confirmation(
+            await email_service.send_purchase_confirmation(
                 user_email=current_user.email,
                 user_name=current_user.full_name or current_user.email,
                 transaction=transaction,
@@ -755,7 +755,7 @@ async def mercadopago_webhook(
         try:
             user = db.query(User).filter(User.id == transaction.user_id).first()
             if user:
-                email_service.send_purchase_confirmation(
+                await email_service.send_purchase_confirmation(
                     user_email=user.email,
                     user_name=user.full_name or user.email,
                     transaction=activated,

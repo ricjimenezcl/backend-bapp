@@ -112,6 +112,15 @@ class EmailService:
             logger.error(f"❌ send_welcome_email failed for {email} (role={role}): {e}", exc_info=True)
             return False
 
+    async def send_verification_email(self, email: str, user_name: str, verification_link: str) -> bool:
+        """Envía correo de verificación de cuenta al registrarse"""
+        subject = "Verifica tu correo - BAPP Search"
+        html = self._render("email_verification", {
+            "user_name": user_name,
+            "verification_url": verification_link,
+        })
+        return await self._send(email, subject, html)
+
     async def send_password_reset_email(self, email: str, user_name: str, token: str) -> bool:
         """Envia correo para restablecer contraseña"""
         subject = "Recuperar contraseña - BAPP Search"
@@ -173,6 +182,103 @@ class EmailService:
         })
         
         return await self._send(email, f"Actualización de Reserva: {title}", html)
+
+    async def send_booking_reminder(
+        self, email: str, user_name: str, is_provider: bool = False, data: Dict[str, Any] = None
+    ) -> bool:
+        """Aviso de reserva aceptada / recordatorio al cliente o proveedor"""
+        d = data or {}
+        html = self._render("booking_status", {
+            "title": d.get("title", "Actualización de tu Reserva"),
+            "message": d.get("message", "Tienes una actualización en tu reserva."),
+            "is_provider": is_provider,
+            "service_name": d.get("service_name", ""),
+            "booking_date": d.get("booking_date", ""),
+            "other_party_name": d.get("other_party_name", ""),
+            "location": d.get("location", ""),
+            "action_text": d.get("action_text", "Ver Reserva"),
+            "action_url": d.get("action_url", f"{settings.FRONTEND_URL}/{'provider' if is_provider else 'client'}/bookings"),
+        })
+        subject = d.get("title", "Actualización de tu Reserva") + " - BAPP"
+        return await self._send(email, subject, html)
+
+    async def send_review_reminder(
+        self, email: str, user_name: str, provider_name: str, booking_id: str
+    ) -> bool:
+        """Invitación a calificar al proveedor tras completar el servicio"""
+        review_url = f"{settings.FRONTEND_URL}/client/bookings?review={booking_id}"
+        html = self._render("booking_status", {
+            "title": "¿Cómo estuvo el servicio? ⭐",
+            "message": f"Tu servicio con <strong>{provider_name}</strong> ha finalizado. Tu opinión ayuda a otros usuarios.",
+            "is_provider": False,
+            "service_name": "",
+            "booking_date": "",
+            "other_party_name": provider_name,
+            "location": "",
+            "action_text": "Dejar Reseña",
+            "action_url": review_url,
+        })
+        return await self._send(email, "Califica tu experiencia - BAPP Search", html)
+
+    async def send_booking_completed_email(
+        self, client_email: str, client_name: str, provider_name: str, review_url: str
+    ) -> bool:
+        """Aviso de servicio completado automáticamente — incluye link de reseña"""
+        html = self._render("booking_status", {
+            "title": "Tu servicio ha finalizado ✅",
+            "message": f"El servicio con <strong>{provider_name}</strong> ha sido completado. ¿Qué tal fue tu experiencia?",
+            "is_provider": False,
+            "service_name": "",
+            "booking_date": "",
+            "other_party_name": provider_name,
+            "location": "",
+            "action_text": "Dejar mi Reseña",
+            "action_url": review_url,
+        })
+        return await self._send(client_email, "Servicio completado — Deja tu reseña - BAPP", html)
+
+    async def send_booking_expired_email(
+        self, client_email: str, client_name: str, service_name: str,
+        scheduled_date: str, search_url: str
+    ) -> bool:
+        """Aviso de reserva PENDING expirada sin confirmar"""
+        html = self._render("booking_status", {
+            "title": "Tu solicitud de reserva venció",
+            "message": (
+                f"La solicitud para <strong>{service_name}</strong> programada para el "
+                f"{scheduled_date} no fue confirmada a tiempo y fue cancelada automáticamente."
+            ),
+            "is_provider": False,
+            "service_name": service_name,
+            "booking_date": scheduled_date,
+            "other_party_name": "",
+            "location": "",
+            "action_text": "Buscar otro proveedor",
+            "action_url": search_url,
+        })
+        return await self._send(client_email, "Solicitud de reserva expirada - BAPP Search", html)
+
+    async def send_purchase_confirmation(
+        self, user_email: str, user_name: str, transaction: Any, product: Any
+    ) -> bool:
+        """Confirmación de pago de plan premium (Google Play, Apple IAP, Transbank)"""
+        from datetime import datetime as _dt
+        amount_val = getattr(transaction, "amount", 0) or 0
+        currency = getattr(transaction, "currency", "CLP") or "CLP"
+        amount_str = f"${int(amount_val):,} {currency}"
+        created = getattr(transaction, "created_at", None)
+        date_str = created.strftime("%d/%m/%Y %H:%M") if created else _dt.now().strftime("%d/%m/%Y %H:%M")
+        product_name = getattr(product, "name", "Plan Premium BAPP") or "Plan Premium BAPP"
+        ref = str(getattr(transaction, "transaction_id", None) or getattr(transaction, "id", ""))
+
+        html = self._render("purchase_confirmation", {
+            "user_name": user_name,
+            "item_name": product_name,
+            "amount": amount_str,
+            "date": date_str,
+            "reference_id": ref,
+        })
+        return await self._send(user_email, "Confirmación de compra - BAPP Search", html)
 
 # Export singleton instance
 email_service = EmailService()

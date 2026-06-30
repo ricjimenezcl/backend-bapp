@@ -1,4 +1,5 @@
 import logging
+import secrets
 import uuid
 from datetime import timedelta, datetime, timezone
 
@@ -108,6 +109,8 @@ class AuthService:
             role="CLIENT",
             status="ACTIVE",
             email_verified=False,
+            email_verification_token=secrets.token_urlsafe(32),
+            email_verification_expiration=datetime.now() + timedelta(hours=24),
             terms_accepted=getattr(client_data, 'terms_accepted', False),
             terms_accepted_at=datetime.now(timezone.utc) if getattr(client_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(client_data, 'email_opt_in', False),
@@ -120,6 +123,7 @@ class AuthService:
         # Guardar antes del segundo commit — expire_on_commit expira user
         user_email = user.email
         user_id = user.id
+        verification_token = user.email_verification_token
         
         # Crear perfil en user_profiles
         profile = UserProfile(
@@ -144,6 +148,21 @@ class AuthService:
                 logger.warning(f"Welcome email NOT sent to CLIENT {user_email} (send_welcome_email returned False)")
         except Exception as e:
             logger.error(f"Error sending welcome email to CLIENT {user_email}: {e}", exc_info=True)
+
+        # Enviar correo de verificación de cuenta
+        try:
+            verification_link = f"{settings.FRONTEND_URL}/auth/verify-email?token={verification_token}"
+            sent = await email_service.send_verification_email(
+                email=user_email,
+                user_name=client_data.full_name,
+                verification_link=verification_link,
+            )
+            if sent:
+                logger.info(f"Verification email sent to CLIENT {user_email}")
+            else:
+                logger.warning(f"Verification email NOT sent to CLIENT {user_email}")
+        except Exception as e:
+            logger.error(f"Error sending verification email to CLIENT {user_email}: {e}", exc_info=True)
         
         return user
 
@@ -187,6 +206,8 @@ class AuthService:
             role="PROVIDER",
             status="ACTIVE",
             email_verified=False,
+            email_verification_token=secrets.token_urlsafe(32),
+            email_verification_expiration=datetime.now() + timedelta(hours=24),
             terms_accepted=getattr(provider_data, 'terms_accepted', False),
             terms_accepted_at=datetime.now(timezone.utc) if getattr(provider_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(provider_data, 'email_opt_in', False),
@@ -199,6 +220,7 @@ class AuthService:
         # Guardar antes del segundo commit — expire_on_commit expira user
         user_email = user.email
         user_id = user.id
+        verification_token = user.email_verification_token
         
         # Crear perfil en providers
         provider = Provider(
@@ -227,7 +249,22 @@ class AuthService:
                 logger.warning(f"Welcome email NOT sent to PROVIDER {user_email} (send_welcome_email returned False)")
         except Exception as e:
             logger.error(f"Error sending welcome email to PROVIDER {user_email}: {e}", exc_info=True)
-        
+
+        # Enviar correo de verificación de cuenta
+        try:
+            verification_link = f"{settings.FRONTEND_URL}/auth/verify-email?token={verification_token}"
+            sent = await email_service.send_verification_email(
+                email=user_email,
+                user_name=provider_data.full_name,
+                verification_link=verification_link,
+            )
+            if sent:
+                logger.info(f"Verification email sent to PROVIDER {user_email}")
+            else:
+                logger.warning(f"Verification email NOT sent to PROVIDER {user_email}")
+        except Exception as e:
+            logger.error(f"Error sending verification email to PROVIDER {user_email}: {e}", exc_info=True)
+
         # Asignar campos adicionales para la respuesta
         # (user expirado tras commit — usar variables locales)
         await self.db.refresh(user)

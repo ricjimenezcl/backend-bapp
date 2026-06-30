@@ -1,0 +1,29 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<span class="preheader">Verifica tu dirección de correo para activar tu cuenta BAPP Search.</span>
+
+<h2 style="margin-bottom: 4px;">¡Ya casi estás listo!</h2>
+<p>Hola <strong>{{ user_name }}</strong>,</p>
+<p>Gracias por registrarte en <span class="highlight">BAPP Search</span>. Solo falta un paso: verificar tu dirección de correo electrónico.</p>
+
+<div class="divider"></div>
+
+<div style="background: #f8fafc; border-radius: 10px; padding: 24px; text-align: center; margin: 24px 0;">
+    <p style="margin: 0 0 8px 0; font-size: 15px; color: #475569;">Este enlace expira en <strong>24 horas</strong></p>
+    <a href="{{ verification_url }}" class="button" style="font-size: 16px;">
+        ✉️ Verificar mi correo
+    </a>
+    <p style="margin: 12px 0 0 0; font-size: 12px; color: #94a3b8;">
+        Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+        <a href="{{ verification_url }}" style="color: #E11D48; word-break: break-all;">{{ verification_url }}</a>
+    </p>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 13px; color: #64748b;">
+    Si no creaste esta cuenta, puedes ignorar este correo con total seguridad.
+</p>
+
+<p><strong>Equipo BappSearch</strong></p>
+{% endblock %}
