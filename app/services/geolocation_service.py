@@ -118,10 +118,13 @@ class GeolocationService:
     ):
         """Proveedores cercanos filtrados por nombre de categoría."""
         if settings.USE_POSTGIS:
-            return await self._find_nearby_postgis(
-                user_lat, user_lng, radius_km,
-                service_name=service_name
-            )
+            try:
+                return await self._find_nearby_postgis(
+                    user_lat, user_lng, radius_km,
+                    service_name=service_name
+                )
+            except HTTPException:
+                logger.warning("PostGIS falló en find_nearby_providers, usando Haversine como fallback")
         return await self._find_nearby_haversine(
             user_lat, user_lng, radius_km,
             service_name=service_name
@@ -140,11 +143,17 @@ class GeolocationService:
     ):
         """Proveedores cercanos filtrados por service_id."""
         if settings.USE_POSTGIS:
-            return await self._find_nearby_postgis(
-                user_lat, user_lng, radius_km,
-                service_id=service_id,
-                skip=skip, limit=limit
-            )
+            try:
+                return await self._find_nearby_postgis(
+                    user_lat, user_lng, radius_km,
+                    service_id=service_id,
+                    skip=skip, limit=limit
+                )
+            except HTTPException:
+                logger.warning(
+                    f"PostGIS falló en find_nearby_providers_by_service_id (service_id={service_id}), "
+                    "usando Haversine como fallback"
+                )
         return await self._find_nearby_haversine(
             user_lat, user_lng, radius_km,
             service_id=service_id,
