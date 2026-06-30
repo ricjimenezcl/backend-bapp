@@ -356,15 +356,20 @@ class OAuthService:
         await self.db.commit()
         await self.db.refresh(new_user)
 
-        # Enviar correo de bienvenida (asíncrono)
+        # Enviar correo de bienvenida
+        # Usar parámetro `email` local — new_user puede expirar en futuros commits
         try:
-            await self.email_service.send_welcome_email(
-                email=new_user.email,
+            sent = await self.email_service.send_welcome_email(
+                email=email,
                 user_name=display_name,
                 role=role
             )
+            if sent:
+                logger.info(f"[OAUTH] Welcome email sent to {email} (role={role})")
+            else:
+                logger.warning(f"[OAUTH] Welcome email NOT sent to {email} (returned False)")
         except Exception as e:
-            logger.error(f"[OAUTH] Error enviando correo de bienvenida a {email}: {str(e)}")
+            logger.error(f"[OAUTH] Error enviando correo de bienvenida a {email}: {e}", exc_info=True)
 
         logger.info(f"[OAUTH] Nuevo usuario creado via {oauth_provider}: {email} (id={new_user.id})")
         return new_user

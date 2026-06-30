@@ -116,10 +116,14 @@ class AuthService:
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
+
+        # Guardar antes del segundo commit — expire_on_commit expira user
+        user_email = user.email
+        user_id = user.id
         
         # Crear perfil en user_profiles
         profile = UserProfile(
-            user_id=user.id,
+            user_id=user_id,
             full_name=client_data.full_name,
             phone=client_data.phone
         )
@@ -127,19 +131,19 @@ class AuthService:
         self.db.add(profile)
         await self.db.commit()
         
-        # Enviar correo de bienvenida
+        # Enviar correo de bienvenida (usar variables locales — user está expirado)
         try:
             sent = await email_service.send_welcome_email(
-                email=user.email,
+                email=user_email,
                 user_name=client_data.full_name,
                 role="CLIENT"
             )
             if sent:
-                logger.info(f"Welcome email sent to CLIENT {user.email}")
+                logger.info(f"Welcome email sent to CLIENT {user_email}")
             else:
-                logger.warning(f"Welcome email NOT sent to CLIENT {user.email} (send_welcome_email returned False)")
+                logger.warning(f"Welcome email NOT sent to CLIENT {user_email} (send_welcome_email returned False)")
         except Exception as e:
-            logger.error(f"Error sending welcome email to CLIENT {user.email}: {e}", exc_info=True)
+            logger.error(f"Error sending welcome email to CLIENT {user_email}: {e}", exc_info=True)
         
         return user
 
@@ -191,10 +195,14 @@ class AuthService:
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
+
+        # Guardar antes del segundo commit — expire_on_commit expira user
+        user_email = user.email
+        user_id = user.id
         
         # Crear perfil en providers
         provider = Provider(
-            user_id=user.id,
+            user_id=user_id,
             run=provider_data.run,
             full_name=provider_data.full_name,
             phone=provider_data.phone,
@@ -206,21 +214,23 @@ class AuthService:
         await self.db.commit()
         await self.db.refresh(provider)
         
-        # Enviar correo de bienvenida
+        # Enviar correo de bienvenida (usar variables locales — user está expirado)
         try:
             sent = await email_service.send_welcome_email(
-                email=user.email,
+                email=user_email,
                 user_name=provider_data.full_name,
                 role="PROVIDER"
             )
             if sent:
-                logger.info(f"Welcome email sent to PROVIDER {user.email}")
+                logger.info(f"Welcome email sent to PROVIDER {user_email}")
             else:
-                logger.warning(f"Welcome email NOT sent to PROVIDER {user.email} (send_welcome_email returned False)")
+                logger.warning(f"Welcome email NOT sent to PROVIDER {user_email} (send_welcome_email returned False)")
         except Exception as e:
-            logger.error(f"Error sending welcome email to PROVIDER {user.email}: {e}", exc_info=True)
+            logger.error(f"Error sending welcome email to PROVIDER {user_email}: {e}", exc_info=True)
         
-        # Asignar campos adicionales para la respuesta (hack para cumplir con Pydantic si es necesario)
+        # Asignar campos adicionales para la respuesta
+        # (user expirado tras commit — usar variables locales)
+        await self.db.refresh(user)
         provider.email = user.email
         provider.status = user.status
         
