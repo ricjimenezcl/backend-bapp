@@ -98,13 +98,14 @@ async def create_booking(
                 provider_data = {
                     "id": provider_user.id,
                     "email": provider_user.email,
-                    "full_name": provider_user.full_name,
-                    "phone_number": getattr(provider_user, "phone_number", None),
+                    "full_name": prov_obj.full_name,
+                    "phone_number": getattr(prov_obj, "phone", None),
                 }
+                client_profile = getattr(current_user, "client_profile", None)
                 client_data = {
                     "id": current_user.id,
                     "email": current_user.email,
-                    "full_name": current_user.full_name,
+                    "full_name": client_profile.full_name if client_profile else current_user.email,
                 }
                 from app.services.notification_helpers import create_task_notify_booking_created_data
                 create_task_notify_booking_created_data(booking_data, provider_data, client_data)
