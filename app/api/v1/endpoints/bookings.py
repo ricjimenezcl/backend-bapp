@@ -205,15 +205,19 @@ async def create_booking(
         from sqlalchemy.future import select as _select
         from app.models.provider import Provider as _Provider
         from app.models.booking import Booking as _Booking
+        logger.info(f"[NOTIFY] Buscando proveedor provider_id_val={provider_id_val} booking_id={new_booking_id}")
         # Paso 1: providers.id → providers.user_id
         prov_row = await db.execute(_select(_Provider).where(_Provider.id == provider_id_val))
         prov_obj = prov_row.scalar_one_or_none()
+        logger.info(f"[NOTIFY] prov_obj={'encontrado user_id='+str(prov_obj.user_id) if prov_obj else 'None'}")
         # Paso 2: providers.user_id → users.email
         if prov_obj:
             user_row = await db.execute(_select(User).where(User.id == prov_obj.user_id))
             provider_user = user_row.scalar_one_or_none()
+            logger.info(f"[NOTIFY] provider_user={'encontrado email='+str(provider_user.email) if provider_user else 'None'}")
             booking_row = await db.execute(_select(_Booking).where(_Booking.id == new_booking_id))
             booking_obj = booking_row.scalar_one_or_none()
+            logger.info(f"[NOTIFY] booking_obj={'encontrado' if booking_obj else 'None'}")
             if provider_user and booking_obj:
                 # Extraer datos mientras el session está activo (evita DetachedInstanceError)
                 booking_data = {
