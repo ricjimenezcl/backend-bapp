@@ -66,60 +66,73 @@ class NotificationDispatcher:
             "email": False
         }
 
+        # 1. In-app notification (aislada para que no bloquee el resto)
         try:
-            # 1. Create in-app notification
             notification = await self.notification_service.create_booking_notification(
                 user_id=provider.id,
-                notification_type=NotificationType.BOOKING_CREATED,
+                notification_type=NotificationType.BOOKING_RECEIVED,
                 booking_id=booking.id,
                 message=f"Nueva solicitud de {client.full_name or client.email}"
             )
             result["in_app"] = True
             logger.info(f"✅ In-app notification created - ID: {notification.id}")
+        except Exception as e:
+            logger.warning(f"⚠️ In-app notification failed: {str(e)}")
 
-            # 2. Send SMS
+        # 2. SMS
+        try:
             sms_result = await self.twilio_service.send_booking_created_sms(
                 provider=provider,
                 booking_id=booking.id,
                 client_name=client.full_name or client.email
             )
             result["sms"] = sms_result
-            if sms_result:
-                logger.info(f"✅ SMS sent to {provider.phone_number}")
-            else:
-                logger.warning(f"⚠️ SMS failed for {provider.phone_number}")
+            logger.info(f"✅ SMS sent to {provider.phone_number}" if sms_result else f"⚠️ SMS failed for {provider.phone_number}")
+        except Exception as e:
+            logger.warning(f"⚠️ SMS failed: {str(e)}")
 
-            # 3. Send WhatsApp (parallel to SMS)
+        # 3. WhatsApp
+        try:
             whatsapp_result = await self.twilio_service.send_booking_created_whatsapp(
                 provider=provider,
                 booking_id=booking.id,
                 client_name=client.full_name or client.email
             )
             result["whatsapp"] = whatsapp_result
-            if whatsapp_result:
-                logger.info(f"✅ WhatsApp sent to {provider.phone_number}")
-            else:
-                logger.warning(f"⚠️ WhatsApp failed for {provider.phone_number}")
+            logger.info(f"✅ WhatsApp sent to {provider.phone_number}" if whatsapp_result else f"⚠️ WhatsApp failed for {provider.phone_number}")
+        except Exception as e:
+            logger.warning(f"⚠️ WhatsApp failed: {str(e)}")
 
-            # 4. Send Email
-            email_result = await self.email_service.send_booking_created_email(
+        # 4. Email → cliente Y proveedor usando send_booking_created
+        try:
+            scheduled_date = str(booking.scheduled_date) if booking.scheduled_date else "A Coordinar"
+            scheduled_time = str(booking.scheduled_time) if booking.scheduled_time else ""
+            booking_date = f"{scheduled_date} {scheduled_time}".strip()
+
+            email_result = await self.email_service.send_booking_created(
+                client_email=client.email,
                 provider_email=provider.email,
-                provider_name=provider.full_name or provider.email,
-                client_name=client.full_name or client.email,
-                service_type="Servicio Solicitado",  # Could be extracted from booking details
-                booking_date=booking.date_time.strftime("%d/%m/%Y %H:%M") if booking.date_time else "A Coordinar",
-                location=booking.location or "A Definir",
-                description=booking.description or "Sin descripción",
-                budget=str(booking.budget or "0") if hasattr(booking, 'budget') else "0",
-                action_link=f"https://bappsearch.com/provider/bookings/{booking.id}"
+                data={
+                    "client_name": client.full_name or client.email,
+                    "provider_name": provider.full_name or provider.email,
+                    "service_name": booking.service_category or "Servicio Solicitado",
+                    "booking_date": booking_date,
+                    "location": booking.location_address or "A Definir",
+                    "description": booking.description or "Sin descripción",
+                    "total_price": str(booking.total_price or "0"),
+                    "booking_id": booking.id,
+                }
             )
             result["email"] = email_result
             if email_result:
-                logger.info(f"✅ Email sent to {provider.email}")
+                logger.info(f"✅ Emails enviados a {client.email} y {provider.email}")
             else:
-                logger.warning(f"⚠️ Email failed for {provider.email}")
+                logger.warning(f"⚠️ Email falló para {client.email} / {provider.email}")
+        except Exception as e:
+            logger.error(f"❌ Email dispatch failed: {str(e)}")
 
-            # 5. Broadcast via WebSocket
+        # 5. WebSocket broadcast
+        try:
             await self._broadcast_notification_via_websocket(
                 user_id=provider.id,
                 notification_type="booking_created",
@@ -131,9 +144,8 @@ class NotificationDispatcher:
                     "client_name": client.full_name or client.email
                 }
             )
-
         except Exception as e:
-            logger.error(f"❌ Error dispatching booking created notification: {str(e)}")
+            logger.warning(f"⚠️ WebSocket broadcast failed: {str(e)}")
 
         logger.info(f"📊 Notification dispatch summary: {result}")
         return result
