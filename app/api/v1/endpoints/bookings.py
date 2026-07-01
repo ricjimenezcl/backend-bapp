@@ -201,23 +201,42 @@ async def create_booking(
 
     # Dispatch notifications (non-blocking)
     try:
-        from app.services.notification_helpers import create_task_notify_booking_created
+        from app.services.notification_helpers import create_task_notify_booking_created_data
         from sqlalchemy.future import select as _select
         from app.models.provider import Provider as _Provider
+        from app.models.booking import Booking as _Booking
         # Paso 1: providers.id → providers.user_id
         prov_row = await db.execute(_select(_Provider).where(_Provider.id == provider_id_val))
         prov_obj = prov_row.scalar_one_or_none()
         # Paso 2: providers.user_id → users.email
-        provider_user = None
         if prov_obj:
             user_row = await db.execute(_select(User).where(User.id == prov_obj.user_id))
             provider_user = user_row.scalar_one_or_none()
-        if provider_user:
-            from app.models.booking import Booking as _Booking
             booking_row = await db.execute(_select(_Booking).where(_Booking.id == new_booking_id))
             booking_obj = booking_row.scalar_one_or_none()
-            if booking_obj:
-                create_task_notify_booking_created(booking_obj, provider_user, current_user, db)
+            if provider_user and booking_obj:
+                # Extraer datos mientras el session está activo (evita DetachedInstanceError)
+                booking_data = {
+                    "id": booking_obj.id,
+                    "scheduled_date": str(booking_obj.scheduled_date) if booking_obj.scheduled_date else None,
+                    "scheduled_time": str(booking_obj.scheduled_time) if booking_obj.scheduled_time else None,
+                    "service_category": booking_obj.service_category,
+                    "location_address": booking_obj.location_address,
+                    "description": booking_obj.description,
+                    "total_price": str(booking_obj.total_price) if booking_obj.total_price else "0",
+                }
+                provider_data = {
+                    "id": provider_user.id,
+                    "email": provider_user.email,
+                    "full_name": provider_user.full_name,
+                    "phone_number": getattr(provider_user, "phone_number", None),
+                }
+                client_data = {
+                    "id": current_user.id,
+                    "email": current_user.email,
+                    "full_name": current_user.full_name,
+                }
+                create_task_notify_booking_created_data(booking_data, provider_data, client_data)
     except Exception as e:
         logger.error(f"⚠️ Error dispatching booking created notifications: {str(e)}")
 
