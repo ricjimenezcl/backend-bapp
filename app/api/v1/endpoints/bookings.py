@@ -203,8 +203,15 @@ async def create_booking(
     try:
         from app.services.notification_helpers import create_task_notify_booking_created
         from sqlalchemy.future import select as _select
-        provider_row = await db.execute(_select(User).where(User.id == provider_id_val))
-        provider_user = provider_row.scalar_one_or_none()
+        from app.models.provider import Provider as _Provider
+        # Paso 1: providers.id → providers.user_id
+        prov_row = await db.execute(_select(_Provider).where(_Provider.id == provider_id_val))
+        prov_obj = prov_row.scalar_one_or_none()
+        # Paso 2: providers.user_id → users.email
+        provider_user = None
+        if prov_obj:
+            user_row = await db.execute(_select(User).where(User.id == prov_obj.user_id))
+            provider_user = user_row.scalar_one_or_none()
         if provider_user:
             from app.models.booking import Booking as _Booking
             booking_row = await db.execute(_select(_Booking).where(_Booking.id == new_booking_id))
