@@ -55,7 +55,6 @@ class EmailService:
             "html": html,
         }
         
-        logger.debug(f"📧 Resend params: from={self.from_email!r} to={to!r}")
         self._resend.Emails.send(params)
         return True
 
