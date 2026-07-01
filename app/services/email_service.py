@@ -162,6 +162,35 @@ class EmailService:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return all(r is True for r in results)
 
+    async def send_booking_accepted_email(
+        self, client_email: str, client_name: str, provider_name: str,
+        provider_rating: str = "5.0", chat_link: str = ""
+    ) -> bool:
+        """Notifica al cliente que su reserva fue aceptada por el proveedor"""
+        html = self._render("booking_status", {
+            "title": "¡Tu reserva fue aceptada! ✅",
+            "message": f"<strong>{provider_name}</strong> ha aceptado tu solicitud de servicio. Ya puedes coordinar los detalles.",
+            "is_provider": False,
+            "other_party_name": provider_name,
+            "action_text": "Ver mi Reserva",
+            "action_url": chat_link or f"{settings.FRONTEND_URL}/client/bookings",
+        })
+        return await self._send(client_email, "¡Tu reserva fue confirmada! - BAPP", html)
+
+    async def send_booking_rejected_email(
+        self, client_email: str, client_name: str, provider_name: str, search_link: str = ""
+    ) -> bool:
+        """Notifica al cliente que su reserva fue rechazada por el proveedor"""
+        html = self._render("booking_status", {
+            "title": "Solicitud no disponible",
+            "message": f"Lamentablemente <strong>{provider_name}</strong> no puede atender tu solicitud en este momento.",
+            "is_provider": False,
+            "other_party_name": provider_name,
+            "action_text": "Buscar otro proveedor",
+            "action_url": search_link or f"{settings.FRONTEND_URL}/client/search",
+        })
+        return await self._send(client_email, "Actualización de tu Reserva - BAPP", html)
+
     async def send_booking_update(self, email: str, status: str, data: Dict[str, Any]) -> bool:
         """Notifica cambios de estado en una reserva"""
         status_map = {
