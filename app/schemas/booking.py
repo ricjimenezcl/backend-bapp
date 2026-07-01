@@ -127,8 +127,8 @@ class BookingResponse(BaseModel):
     total_price: Optional[Decimal] = None
     currency: str
     status: BookingStatusEnum
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     service_provider_id: Optional[int] = None
     location_address: Optional[str] = None
