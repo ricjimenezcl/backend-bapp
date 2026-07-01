@@ -25,11 +25,11 @@ class NotificationSchema(BaseModel):
             return {
                 "id": data.id,
                 "type": type_str,
-                "title": data.title,
-                "content": data.content,
+                "title": data.title or "Notificación",
+                "content": data.content or "",
                 "related_entity_type": data.related_entity_type,
                 "related_entity_id": data.related_entity_id,
-                "is_read": data.is_read,
+                "is_read": data.is_read if data.is_read is not None else False,
                 "created_at": data.created_at,
             }
         return data
