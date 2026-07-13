@@ -1,7 +1,7 @@
 import logging
 import secrets
 import uuid
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 
 from jose import JWTError, jwt
 
