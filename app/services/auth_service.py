@@ -1,7 +1,7 @@
 import logging
 import secrets
 import uuid
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta, datetime
 
 from jose import JWTError, jwt
 
@@ -127,9 +127,9 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             email_verification_token=secrets.token_urlsafe(32),
-            email_verification_expiration=datetime.now() + timedelta(hours=24),
+            email_verification_expiration=datetime.utcnow() + timedelta(hours=24),
             terms_accepted=getattr(client_data, 'terms_accepted', False),
-            terms_accepted_at=datetime.now(timezone.utc) if getattr(client_data, 'terms_accepted', False) else None,
+            terms_accepted_at=datetime.utcnow() if getattr(client_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(client_data, 'email_opt_in', False),
         )
 
@@ -250,9 +250,9 @@ class AuthService:
             status="ACTIVE",
             email_verified=False,
             email_verification_token=secrets.token_urlsafe(32),
-            email_verification_expiration=datetime.now() + timedelta(hours=24),
+            email_verification_expiration=datetime.utcnow() + timedelta(hours=24),
             terms_accepted=getattr(provider_data, 'terms_accepted', False),
-            terms_accepted_at=datetime.now(timezone.utc) if getattr(provider_data, 'terms_accepted', False) else None,
+            terms_accepted_at=datetime.utcnow() if getattr(provider_data, 'terms_accepted', False) else None,
             email_opt_in=getattr(provider_data, 'email_opt_in', False),
         )
 

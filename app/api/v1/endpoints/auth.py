@@ -167,7 +167,7 @@ async def register_client(
         logger.exception(f"Unexpected error registering client: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Client registration failed: {str(e)}"
+            detail="Error interno al registrar cliente. Inténtalo nuevamente."
         )
 
 @router.post("/register-provider", response_model=ProviderResponse)
@@ -274,7 +274,7 @@ async def register_provider(
         logger.exception(f"Provider registration unexpected error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Provider registration failed: {str(e)}"
+            detail="Error interno al registrar proveedor. Inténtalo nuevamente."
         )
 
 
