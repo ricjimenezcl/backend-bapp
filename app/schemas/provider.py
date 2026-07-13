@@ -8,6 +8,7 @@ from app.utils.chile_validators import (
     validate_phone as _validate_phone,
     validate_rut as _validate_rut,
     normalize_rut as _normalize_rut,
+    normalize_phone as _normalize_phone,
     INVALID_PHONE_MSG,
     INVALID_RUT_MSG,
 )
@@ -24,6 +25,10 @@ class ProviderRegister(BaseModel):
     selfie: Optional[str] = None  # base64 o url temporal
     terms_accepted: bool = False
     email_opt_in: bool = False
+
+    @validator('email')
+    def normalize_email(cls, v):
+        return v.strip().lower()
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -55,7 +60,7 @@ class ProviderRegister(BaseModel):
     def validate_phone(cls, v):
         if v and not _validate_phone(v):
             raise ValueError(INVALID_PHONE_MSG)
-        return v
+        return _normalize_phone(v) if v else v
 
     @validator('run')
     def validate_run(cls, v):

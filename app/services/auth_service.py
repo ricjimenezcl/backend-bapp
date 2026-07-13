@@ -10,12 +10,14 @@ from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from app.models.user import User, UserProfile
 from app.models.provider import Provider
 from app.schemas.user import ClientRegister, Token
 from app.schemas.provider import ProviderRegister
 from app.core.config import settings
 from app.services.email_service import email_service
+from app.utils.chile_validators import normalize_phone
 
 EMAIL_ALREADY_REGISTERED = "Email already registered"
 RUN_ALREADY_REGISTERED = "RUN already registered"
@@ -82,17 +84,32 @@ class AuthService:
 
     async def register_client(self, client_data: ClientRegister) -> User:
         # Verificar si el usuario ya existe
-        result = await self.db.execute(select(User).where(User.email == client_data.email))
+        normalized_email = client_data.email.strip().lower()
+        normalized_phone = normalize_phone(client_data.phone) if client_data.phone else None
+        logger.info("register_client attempt email=%s phone=%s", normalized_email, normalized_phone or 'N/A')
+        result = await self.db.execute(
+            select(User).where(func.lower(func.trim(User.email)) == normalized_email)
+        )
         existing_user = result.scalar_one_or_none()
         
         if existing_user:
+            logger.warning(
+                "register_client duplicate email incoming=%s existing_user_id=%s existing_email=%s role=%s status=%s",
+                client_data.email,
+                existing_user.id,
+                existing_user.email,
+                existing_user.role,
+                existing_user.status,
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=EMAIL_ALREADY_REGISTERED
             )
         
         # Verificar si el teléfono ya existe en perfiles de cliente
-        result = await self.db.execute(select(UserProfile).where(UserProfile.phone == client_data.phone))
+        result = await self.db.execute(
+            select(UserProfile).where(func.replace(func.trim(UserProfile.phone), ' ', '') == (normalized_phone.replace(' ', '') if normalized_phone else None))
+        )
         existing_profile = result.scalar_one_or_none()
         if existing_profile:
             raise HTTPException(
@@ -104,7 +121,7 @@ class AuthService:
         hashed_password = self.get_password_hash(client_data.password)
         
         user = User(
-            email=client_data.email,
+            email=normalized_email,
             password=hashed_password,
             role="CLIENT",
             status="ACTIVE",
@@ -129,7 +146,7 @@ class AuthService:
         profile = UserProfile(
             user_id=user_id,
             full_name=client_data.full_name,
-            phone=client_data.phone
+            phone=normalized_phone or client_data.phone
         )
         
         self.db.add(profile)
@@ -168,40 +185,66 @@ class AuthService:
 
     async def register_provider(self, provider_data: ProviderRegister) -> Provider:
         # Verificar si el usuario ya existe
-        result = await self.db.execute(select(User).where(User.email == provider_data.email))
-        existing_user = result.scalar_one_or_none()
-        
-        if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=EMAIL_ALREADY_REGISTERED
-            )
-        
-        # Verificar si el RUN ya existe
-        if provider_data.run:
-            result = await self.db.execute(select(Provider).where(Provider.run == provider_data.run))
-            existing_provider = result.scalar_one_or_none()
+        normalized_email = provider_data.email.strip().lower()
+        normalized_phone = normalize_phone(provider_data.phone) if provider_data.phone else None
+        normalized_run = provider_data.run
+        logger.info("register_provider attempt email=%s run=%s phone=%s", normalized_email, normalized_run or 'N/A', normalized_phone or 'N/A')
 
+        # Prioridad: RUN -> teléfono -> email
+        if normalized_run:
+            result = await self.db.execute(select(Provider).where(Provider.run == normalized_run))
+            existing_provider = result.scalar_one_or_none()
             if existing_provider:
+                logger.warning(
+                    "register_provider duplicate run incoming=%s existing_provider_id=%s existing_run=%s",
+                    normalized_run,
+                    existing_provider.id,
+                    existing_provider.run,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=RUN_ALREADY_REGISTERED
                 )
+
+        if normalized_phone:
+            result = await self.db.execute(
+                select(Provider).where(func.replace(func.trim(Provider.phone), ' ', '') == normalized_phone.replace(' ', ''))
+            )
+            existing_provider_phone = result.scalar_one_or_none()
+            if existing_provider_phone:
+                logger.warning(
+                    "register_provider duplicate phone incoming=%s existing_provider_id=%s existing_phone=%s",
+                    normalized_phone,
+                    existing_provider_phone.id,
+                    existing_provider_phone.phone,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=PHONE_ALREADY_REGISTERED
+                )
+
+        result = await self.db.execute(select(User).where(func.lower(func.trim(User.email)) == normalized_email))
+        existing_user = result.scalar_one_or_none()
         
-        # Verificar si el teléfono ya existe en proveedores
-        result = await self.db.execute(select(Provider).where(Provider.phone == provider_data.phone))
-        existing_provider_phone = result.scalar_one_or_none()
-        if existing_provider_phone:
+        if existing_user:
+            logger.warning(
+                "register_provider duplicate email incoming=%s existing_user_id=%s existing_email=%s role=%s status=%s",
+                provider_data.email,
+                existing_user.id,
+                existing_user.email,
+                existing_user.role,
+                existing_user.status,
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=PHONE_ALREADY_REGISTERED
+                detail=EMAIL_ALREADY_REGISTERED
             )
         
         # Crear usuario PROVEEDOR
         hashed_password = self.get_password_hash(provider_data.password)
         
         user = User(
-            email=provider_data.email,
+            email=normalized_email,
             password=hashed_password,
             role="PROVIDER",
             status="ACTIVE",
@@ -225,9 +268,9 @@ class AuthService:
         # Crear perfil en providers
         provider = Provider(
             user_id=user_id,
-            run=provider_data.run,
+            run=normalized_run,
             full_name=provider_data.full_name,
-            phone=provider_data.phone,
+            phone=normalized_phone or provider_data.phone,
             bio=provider_data.bio,
             avatar=provider_data.avatar
         )

@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 import re
+from app.utils.chile_validators import normalize_phone
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -62,6 +63,10 @@ class ClientRegister(BaseModel):
     terms_accepted: bool = False
     email_opt_in: bool = False
 
+    @validator('email')
+    def normalize_email(cls, v):
+        return v.strip().lower()
+
     @validator('password')
     def password_strength(cls, v):
         if len(v) < 8:
@@ -78,7 +83,7 @@ class ClientRegister(BaseModel):
     def validate_phone(cls, v):
         if v and not re.match(r'^(\+56|56)?\s?9\s?\d{4}\s?\d{4}$', v.replace(' ', '')):
             raise ValueError('Formato de teléfono chileno inválido')
-        return v
+        return normalize_phone(v) if v else v
 
     model_config = ConfigDict(
         json_schema_extra={
