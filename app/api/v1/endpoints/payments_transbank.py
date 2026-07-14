@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -106,6 +106,29 @@ def _is_allowed_base_url(url: str) -> bool:
     return normalized in allowed
 
 
+def _is_local_origin(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return True
+
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1"}
+
+
+def _default_frontend_origin() -> str:
+    configured = settings.FRONTEND_URL.rstrip("/")
+    if not _is_local_origin(configured):
+        return configured
+
+    for origin in settings.ALLOWED_ORIGINS:
+        normalized = origin.rstrip("/")
+        if not _is_local_origin(normalized):
+            return normalized
+
+    return configured
+
+
 def _resolve_frontend_origin(request: Request, preferred_return_url: str | None = None) -> str:
     """Determina el origin (scheme+host) del frontend al que se debe volver
     tras el pago, validando contra ALLOWED_ORIGINS/FRONTEND_URL."""
@@ -132,24 +155,50 @@ def _resolve_frontend_origin(request: Request, preferred_return_url: str | None 
             pass
 
     # 4) Configuración global por defecto
-    return settings.FRONTEND_URL.rstrip("/")
+    return _default_frontend_origin()
 
 
-def _build_return_url(request: Request, preferred_return_url: str | None = None) -> str:
+def _extract_frontend_return_path(preferred_return_url: str | None = None) -> str:
+    # Siempre se redirige a /payment/callback tras el retorno de Webpay,
+    # independientemente de cualquier query param adicional que venga en
+    # preferred_return_url. Esto garantiza que el frontend SIEMPRE ejecute
+    # el commit() de la transacción antes de navegar a cualquier otra
+    # pantalla (perfil, home, etc.). El destino final post-commit lo decide
+    # el propio frontend (ver PaymentComponent.commit()).
+    return "/payment/callback"
+
+
+def _build_return_url(request: Request, buy_order: str) -> str:
     """Construye la return_url que se envía a Transbank.
 
     Transbank Webpay Plus retorna al comercio mediante un POST (form-encoded,
     con token_ws en el body) hacia esta return_url. Como el frontend es una
     SPA estática, no puede leer parámetros enviados por POST. Por eso la
     return_url apunta a un endpoint puente en este backend
-    (`/transbank/return`), que recibe el POST de Transbank y redirige (302)
-    al frontend con el token como query param (GET), que sí es legible por
-    Angular Router.
+    (`/transbank/return`), que recibe el POST de Transbank, resuelve la
+    transacción y redirige (303) al frontend con un buy_order y estado de
+    pago, evitando exponer token_ws en la URL final.
     """
-    frontend_origin = _resolve_frontend_origin(request, preferred_return_url)
     backend_base = str(request.base_url).rstrip("/")
-    query = urlencode({"origin": frontend_origin})
+    query = urlencode({"buy_order": buy_order})
     return f"{backend_base}/api/v1/payments/transbank/return?{query}"
+
+
+def _get_transaction_redirect_context(tx: Transaction | None) -> tuple[str, str]:
+    default_origin = _default_frontend_origin()
+    default_path = "/payment/callback"
+    if not tx or not isinstance(tx.device_info, dict):
+        return default_origin, default_path
+
+    origin = tx.device_info.get("frontend_origin")
+    if not isinstance(origin, str) or not _is_allowed_base_url(origin):
+        origin = default_origin
+
+    path = tx.device_info.get("frontend_return_path")
+    if not isinstance(path, str) or not path.startswith("/") or path.startswith("//"):
+        path = default_path
+
+    return origin.rstrip("/"), path
 
 
 def _apply_benefit(db: Session, tx: Transaction) -> None:
@@ -158,7 +207,7 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
         return
 
     duration_days = PRODUCT_TYPE_CONFIG.get(product_type, {}).get("duration_days", 7)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires_at = now + timedelta(days=duration_days)
 
     user = db.query(User).filter(User.id == tx.user_id).first()
@@ -190,7 +239,7 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
         tx.expires_at = expires_at
 
 
-def _make_buy_order(user_id: int, product_type: str) -> str:
+def _make_buy_order() -> str:
     # Formato: BAPP{timestamp_short}{random_hex} = ~18-20 chars (max 26 for Transbank)
     ts = int(time.time()) % 1000000  # últimos 6 dígitos del timestamp
     rand = uuid.uuid4().hex[:4].upper()
@@ -203,12 +252,13 @@ async def transbank_return_bridge(request: Request):
 
     Transbank Webpay Plus redirige al comercio con un POST form-encoded
     (token_ws si el pago fue autorizado, o TBK_TOKEN si el usuario canceló/
-    abortó en Webpay). Este endpoint extrae esos valores y redirige (302,
-    GET) al frontend SPA con los mismos parámetros en la query string, que
-    sí es accesible desde el Angular Router.
+    abortó en Webpay). Este endpoint extrae esos valores, busca el contexto
+    guardado de la transacción y redirige (303, GET) al frontend SPA con un
+    estado y buy_order, sin exponer token_ws en la URL final.
     """
     token_ws: str | None = None
     tbk_token: str | None = None
+    buy_order: str | None = request.query_params.get("buy_order")
 
     if request.method == "POST":
         try:
@@ -224,20 +274,37 @@ async def transbank_return_bridge(request: Request):
     if not tbk_token:
         tbk_token = request.query_params.get("TBK_TOKEN")
 
-    origin_param = request.query_params.get("origin")
-    frontend_origin = (
-        origin_param if origin_param and _is_allowed_base_url(origin_param)
-        else settings.FRONTEND_URL.rstrip("/")
-    )
+    db = next(get_db())
+    try:
+        tx = None
+        if token_ws:
+            tx = (
+                db.query(Transaction)
+                .filter(Transaction.tbk_token == token_ws)
+                .order_by(Transaction.id.desc())
+                .first()
+            )
+        if not tx and buy_order:
+            tx = (
+                db.query(Transaction)
+                .filter(Transaction.buy_order == buy_order)
+                .order_by(Transaction.id.desc())
+                .first()
+            )
 
-    callback_params: Dict[str, str] = {}
-    if token_ws:
-        callback_params["token_ws"] = token_ws
-    if tbk_token:
-        callback_params["TBK_TOKEN"] = tbk_token
+        frontend_origin, return_path = _get_transaction_redirect_context(tx)
+        resolved_buy_order = tx.buy_order if tx and tx.buy_order else buy_order
 
-    query = f"?{urlencode(callback_params)}" if callback_params else ""
-    redirect_url = f"{frontend_origin}/payment/callback{query}"
+        callback_params: Dict[str, str] = {"provider": "transbank"}
+        callback_params["status"] = "cancelled" if tbk_token else "success"
+        if resolved_buy_order:
+            callback_params["buy_order"] = resolved_buy_order
+
+        separator = "&" if "?" in return_path else "?"
+        query = urlencode(callback_params)
+        redirect_url = f"{frontend_origin}{return_path}{separator}{query}"
+    finally:
+        db.close()
 
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
@@ -262,8 +329,11 @@ def create_transbank_transaction(
             detail=f"Invalid amount for {body.product_type.value}. Expected {expected_amount}",
         )
 
-    buy_order = _make_buy_order(current_user.id, body.product_type.value)
+    buy_order = _make_buy_order()
     session_id = uuid.uuid4().hex[:16]  # 16 chars hex, max 26 for Transbank
+
+    frontend_origin = _resolve_frontend_origin(request, body.return_url)
+    frontend_return_path = _extract_frontend_return_path(body.return_url)
 
     try:
         tbk = TransbankService()
@@ -271,7 +341,7 @@ def create_transbank_transaction(
             buy_order=buy_order,
             session_id=session_id,
             amount=expected_amount,
-            return_url=_build_return_url(request, body.return_url),
+            return_url=_build_return_url(request, buy_order),
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transbank create failed: {str(exc)}") from exc
@@ -294,7 +364,12 @@ def create_transbank_transaction(
         tbk_token=token,
         purchase_token=token,
         product_type=body.product_type.value,
-        device_info={"provider": "transbank", "flow": "webpay_plus"},
+        device_info={
+            "provider": "transbank",
+            "flow": "webpay_plus",
+            "frontend_origin": frontend_origin,
+            "frontend_return_path": frontend_return_path,
+        },
     )
 
     db.add(tx)
@@ -317,15 +392,22 @@ def commit_transbank_transaction(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    tx = (
-        db.query(Transaction)
-        .filter(Transaction.tbk_token == body.token, Transaction.user_id == current_user.id)
-        .order_by(Transaction.id.desc())
-        .first()
-    )
+    if not body.token and not body.buy_order:
+        raise HTTPException(status_code=400, detail="token or buy_order is required")
+
+    tx_query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
+    if body.token:
+        tx_query = tx_query.filter(Transaction.tbk_token == body.token)
+    else:
+        tx_query = tx_query.filter(Transaction.buy_order == body.buy_order)
+
+    tx = tx_query.order_by(Transaction.id.desc()).first()
 
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
+
+    if not tx.tbk_token:
+        raise HTTPException(status_code=400, detail="Transaction has no Transbank token")
 
     if tx.status == TransactionStatus.COMPLETED:
         return WebpayCommitTransactionResponse(
@@ -340,7 +422,7 @@ def commit_transbank_transaction(
 
     try:
         tbk = TransbankService()
-        result = tbk.commit(token=body.token)
+        result = tbk.commit(token=tx.tbk_token)
     except Exception as exc:
         tx.status = TransactionStatus.FAILED
         tx.validation_response = str(exc)
@@ -355,8 +437,9 @@ def commit_transbank_transaction(
     tx.buy_order = buy_order
     tx.authorization_code = auth_code
     tx.platform_transaction_id = auth_code
-    tx.paid_at = datetime.utcnow()
-    tx.validated_at = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    tx.paid_at = now
+    tx.validated_at = now
     tx.validation_response = str(result)
 
     if response_code != 0:

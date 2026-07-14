@@ -193,7 +193,16 @@ class WebpayCreateTransactionResponse(BaseModel):
 
 
 class WebpayCommitTransactionRequest(BaseModel):
-    token: str = Field(..., min_length=8, description="token_ws retornado por Webpay")
+    token: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        description="token_ws retornado por Webpay"
+    )
+    buy_order: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        description="buy_order local para confirmar sin exponer token_ws"
+    )
 
 
 class WebpayCommitTransactionResponse(BaseModel):
