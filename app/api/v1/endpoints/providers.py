@@ -229,46 +229,12 @@ async def get_my_provider_stats(
     provider = result.scalar_one_or_none()
     if not provider:
         raise HTTPException(status_code=404, detail=PROVIDER_NOT_FOUND)
-    from app.models.booking import Booking as _Booking
-    from sqlalchemy import func as _func
-    from sqlalchemy import case as _case
-    from datetime import datetime, timedelta
-    stats_result = await db.execute(
-        select(
-            _func.count().label("total"),
-            _func.sum(_case((_Booking.status == "PENDING", 1), else_=0)).label("pending"),
-            _func.sum(_case((_Booking.status == "COMPLETED", 1), else_=0)).label("completed"),
-        ).where(_Booking.provider_id == provider.id)
-    )
-    row = stats_result.one()
+    stats = await get_provider_stats(provider.id, current_user, db)
 
-    # Clientes únicos que visitaron el servicio en últimos 90 días
-    cutoff = datetime.utcnow() - timedelta(days=90)
-    sv_result = await db.execute(
-        text("""
-            SELECT COUNT(DISTINCT viewer_user_id)
-            FROM service_view_events
-            WHERE provider_id = :pid
-              AND viewer_user_id IS NOT NULL
-              AND viewed_at >= :cutoff
-        """),
-        {"pid": provider.id, "cutoff": cutoff}
-    )
-    service_views = sv_result.scalar() or 0
-
-    from app.infra.redis.cache import get_profile_views
-    profile_views = get_profile_views(provider.id)
-
-    return {
-        "total_bookings": row.total or 0,
-        "pending_bookings": row.pending or 0,
-        "completed_bookings": row.completed or 0,
-        "total_earnings": 0.0,
-        "rating_avg": float(provider.rating_avg) if provider.rating_avg else 0.0,
-        "is_profile_complete": bool(provider.run and provider.phone),
-        "service_views": service_views,
-        "profile_views": profile_views,
-    }
+    # Compatibilidad con consumidores legacy
+    stats["rating_avg"] = stats.get("average_rating", 0.0)
+    stats["is_profile_complete"] = bool(provider.run and provider.phone)
+    return stats
 
 
 @router.get("/validation/status")
@@ -1127,7 +1093,7 @@ async def create_service_provider(
                 VALUES
                     (:provider_id, :service_id, :business_name, :description, :address,
                      :latitude, :longitude, :phone, :hourly_rate, :is_available,
-                     :validation_status, CAST(:portfolio_images AS jsonb), 0.0, 0,
+                     :validation_status, CAST(:portfolio_images AS jsonb), 5.0, 0,
                      now(), now())
                 RETURNING id, created_at, updated_at
             """),

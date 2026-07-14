@@ -26,7 +26,7 @@ class Provider(Base):
     phone = Column(String(20))
     avatar = Column(String(500))  # URL o base64 string, no binary data
     bio = Column(Text)
-    rating_avg = Column(DECIMAL(3, 2), default=0.00)
+    rating_avg = Column(DECIMAL(3, 2), default=5.00)
     run = Column(String(15))
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
