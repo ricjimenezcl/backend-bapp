@@ -7,8 +7,9 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -89,7 +90,43 @@ def _expected_amount(product_type: str, product) -> int:
     return int(cfg["amount"])
 
 
-def _build_return_url() -> str:
+def _is_allowed_base_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False
+
+    normalized = f"{parsed.scheme}://{parsed.netloc}"
+    allowed = {o.rstrip("/") for o in settings.ALLOWED_ORIGINS}
+    allowed.add(settings.FRONTEND_URL.rstrip("/"))
+    return normalized in allowed
+
+
+def _build_return_url(request: Request, preferred_return_url: str | None = None) -> str:
+    # 1) URL explícita enviada por frontend web/móvil webview
+    if preferred_return_url and _is_allowed_base_url(preferred_return_url):
+        return preferred_return_url.rstrip("/") + "/payment/callback"
+
+    # 2) Origin del request actual
+    origin = request.headers.get("origin")
+    if origin and _is_allowed_base_url(origin):
+        return origin.rstrip("/") + "/payment/callback"
+
+    # 3) Referer como fallback
+    referer = request.headers.get("referer")
+    if referer:
+        try:
+            parsed_ref = urlparse(referer)
+            ref_base = f"{parsed_ref.scheme}://{parsed_ref.netloc}"
+            if _is_allowed_base_url(ref_base):
+                return ref_base.rstrip("/") + "/payment/callback"
+        except Exception:
+            pass
+
+    # 4) Configuración global por defecto
     base = settings.FRONTEND_URL.rstrip("/")
     return f"{base}/payment/callback"
 
@@ -142,6 +179,7 @@ def _make_buy_order(user_id: int, product_type: str) -> str:
 @router.post("/transbank/create", response_model=WebpayCreateTransactionResponse)
 def create_transbank_transaction(
     body: WebpayCreateTransactionRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -167,7 +205,7 @@ def create_transbank_transaction(
             buy_order=buy_order,
             session_id=session_id,
             amount=expected_amount,
-            return_url=_build_return_url(),
+            return_url=_build_return_url(request, body.return_url),
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transbank create failed: {str(exc)}") from exc

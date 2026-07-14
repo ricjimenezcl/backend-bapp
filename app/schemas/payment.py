@@ -179,6 +179,7 @@ class WebpayProductTypeEnum(str, Enum):
 class WebpayCreateTransactionRequest(BaseModel):
     product_type: WebpayProductTypeEnum
     amount: int = Field(..., ge=1, description="Monto en CLP")
+    return_url: Optional[str] = Field(default=None, description="URL de retorno post-Webpay")
 
 
 class WebpayCreateTransactionResponse(BaseModel):
