@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.dependencies import get_current_user, get_db
 from app.models.provider import Provider
+from app.models.provider_service_slot import ProviderServiceSlot
 from app.models.service_view_unlock import ServiceViewUnlock
 from app.models.transaction import Transaction, TransactionStatus
 from app.models.user import User
@@ -237,6 +238,41 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
 
     elif product_type in ("PROVIDER_SERVICE_30", "PROVIDER_SERVICE_YEAR"):
         tx.expires_at = expires_at
+        provider = db.query(Provider).filter(Provider.user_id == user.id).first()
+        if provider:
+            occupied_numbers = [
+                s.slot_number
+                for s in db.query(ProviderServiceSlot.slot_number)
+                .filter(
+                    ProviderServiceSlot.provider_id == provider.id,
+                    ProviderServiceSlot.is_active.is_(True),
+                )
+                .all()
+            ]
+            next_slot_number = 3  # Slots 1 y 2 son gratuitos
+            while next_slot_number in occupied_numbers:
+                next_slot_number += 1
+
+            slot = (
+                db.query(ProviderServiceSlot)
+                .filter(
+                    ProviderServiceSlot.provider_id == provider.id,
+                    ProviderServiceSlot.slot_number == next_slot_number,
+                )
+                .first()
+            )
+            if not slot:
+                slot = ProviderServiceSlot(
+                    provider_id=provider.id,
+                    slot_number=next_slot_number,
+                    is_free=False,
+                )
+                db.add(slot)
+
+            slot.transaction_id = tx.id
+            slot.activated_at = now
+            slot.expires_at = expires_at
+            slot.is_active = True
 
 
 def _make_buy_order() -> str:

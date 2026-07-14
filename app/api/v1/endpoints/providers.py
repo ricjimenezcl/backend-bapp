@@ -1068,15 +1068,42 @@ async def create_service_provider(
             )
 
         # 2.7 ── Contar servicios existentes del proveedor
-        # Los primeros 2 se crean con "approved" (gratuitos), los siguientes con "pending"
+        # Los primeros 2 se crean con "approved" (gratuitos); del 3ro en
+        # adelante se requiere un slot de pago activo (provider_service_slots).
         count_result = await db.execute(
             text("SELECT COUNT(*) FROM service_providers WHERE provider_id = :pid"),
             {"pid": provider.id}
         )
         service_count = count_result.scalar() or 0
 
-        # Los primeros 2 servicios se aprueban automáticamente; los demás quedan pendientes
-        new_validation_status = "approved" if service_count < 2 else "pending"
+        claimed_slot_id = None
+        if service_count < 2:
+            new_validation_status = "approved"
+        else:
+            # Buscar un slot de pago activo, vigente y sin reclamar (o ya propio
+            # del proveedor) para asignarlo a este nuevo servicio.
+            slot_result = await db.execute(
+                text(
+                    "SELECT id FROM provider_service_slots "
+                    "WHERE provider_id = :pid "
+                    "  AND service_provider_id IS NULL "
+                    "  AND is_active = TRUE "
+                    "  AND (expires_at IS NULL OR expires_at > now()) "
+                    "ORDER BY id ASC "
+                    "LIMIT 1"
+                ),
+                {"pid": provider.id}
+            )
+            active_slot = slot_result.fetchone()
+
+            if not active_slot:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail="PLAN_REQUIRED"
+                )
+
+            claimed_slot_id = active_slot.id
+            new_validation_status = "approved"
 
         # Crear el servicio via raw SQL para evitar el type mismatch de asyncpg
         # con columnas geometry(Point,4326) de PostGIS/geoalchemy2.
@@ -1115,6 +1142,16 @@ async def create_service_provider(
         row = insert_result.fetchone()
         new_service_id = row.id
         new_created_at = row.created_at
+
+        if claimed_slot_id is not None:
+            await db.execute(
+                text(
+                    "UPDATE provider_service_slots "
+                    "SET service_provider_id = :sid "
+                    "WHERE id = :slot_id AND service_provider_id IS NULL"
+                ),
+                {"sid": new_service_id, "slot_id": claimed_slot_id}
+            )
 
         await db.commit()
 
@@ -1231,13 +1268,16 @@ async def toggle_service_availability(
                 new_validation_status = "approved"
             else:
                 # Necesita plan activo — verificar provider_service_slots
+                # Un slot puede estar ya asignado a este servicio (service_provider_id = sid)
+                # o disponible sin reclamar (service_provider_id IS NULL) tras un pago reciente.
                 slot_result = await db.execute(
                     text(
                         "SELECT id FROM provider_service_slots "
                         "WHERE provider_id = :pid "
-                        "  AND service_provider_id = :sid "
+                        "  AND (service_provider_id = :sid OR service_provider_id IS NULL) "
                         "  AND is_active = TRUE "
                         "  AND (expires_at IS NULL OR expires_at > now()) "
+                        "ORDER BY (service_provider_id = :sid) DESC, id ASC "
                         "LIMIT 1"
                     ),
                     {"pid": provider.id, "sid": service_id}
@@ -1249,6 +1289,16 @@ async def toggle_service_availability(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail="PLAN_REQUIRED"
                     )
+
+                # Reclamar el slot para este servicio si aún no estaba asignado
+                await db.execute(
+                    text(
+                        "UPDATE provider_service_slots "
+                        "SET service_provider_id = :sid "
+                        "WHERE id = :slot_id AND service_provider_id IS NULL"
+                    ),
+                    {"sid": service_id, "slot_id": active_slot.id}
+                )
 
                 await db.execute(
                     text(
