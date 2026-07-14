@@ -309,6 +309,45 @@ class EmailService:
         })
         return await self._send(user_email, "Confirmación de compra - BAPP Search", html)
 
+    async def send_service_slot_activated_email(
+        self, email: str, business_name: str, expires_at: Any
+    ) -> bool:
+        """Notifica al proveedor que su nuevo servicio (slot pagado) ya está
+        publicado, indicando la fecha en que dejará de estarlo si no renueva."""
+        expires_str = expires_at.strftime("%d/%m/%Y") if expires_at else "sin definir"
+        html = self._render("service_slot_status", {
+            "title": "¡Tu nuevo servicio fue publicado! 🎉",
+            "message": (
+                f"Tu servicio <strong>{business_name}</strong> ya está visible para clientes. "
+                f"Esta publicación estará activa hasta el <strong>{expires_str}</strong>, fecha en "
+                "la que deberás renovar el plan para mantenerlo publicado."
+            ),
+            "business_name": business_name,
+            "expires_str": expires_str,
+            "action_text": "Ver mis servicios",
+            "action_url": f"{settings.FRONTEND_URL}/provider/tabs/my-services",
+        })
+        return await self._send(email, "Nuevo servicio publicado - BAPP Search", html)
+
+    async def send_service_slot_expiring_soon_email(
+        self, email: str, business_name: str, expires_at: Any
+    ) -> bool:
+        """Recordatorio enviado ~5 días antes de que expire un slot de servicio pagado."""
+        expires_str = expires_at.strftime("%d/%m/%Y") if expires_at else "próximamente"
+        html = self._render("service_slot_status", {
+            "title": "Tu publicación está por vencer ⏳",
+            "message": (
+                f"Tu servicio <strong>{business_name}</strong> dejará de estar publicado el "
+                f"<strong>{expires_str}</strong>. Renueva tu plan para que tus clientes sigan "
+                "encontrándote."
+            ),
+            "business_name": business_name,
+            "expires_str": expires_str,
+            "action_text": "Renovar plan",
+            "action_url": f"{settings.FRONTEND_URL}/provider/tabs/my-services",
+        })
+        return await self._send(email, "Tu publicación vence pronto - BAPP Search", html)
+
 # Export singleton instance
 email_service = EmailService()
 

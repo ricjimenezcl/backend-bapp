@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+
+    <div style="background: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Servicio:</strong> {{ business_name }}</p>
+        <p style="margin: 8px 0 0;"><strong>Vigencia hasta:</strong> <span class="highlight">{{ expires_str }}</span></p>
+    </div>
+
+    {% if action_url %}
+    <div style="text-align: center;">
+        <a href="{{ action_url }}" class="button">{{ action_text }}</a>
+    </div>
+    {% endif %}
+
+    <div class="divider"></div>
+    <p style="font-size: 14px;">Puedes revisar y administrar tus servicios publicados desde tu panel de proveedor.</p>
+{% endblock %}

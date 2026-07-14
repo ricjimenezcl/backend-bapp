@@ -31,6 +31,10 @@ class ProviderServiceSlot(Base):
     expires_at = Column(TIMESTAMP, index=True)
     is_active = Column(Boolean, default=False, nullable=False, index=True)
 
+    # Tracking de notificaciones (evita reenvíos duplicados)
+    activation_email_sent_at = Column(TIMESTAMP, nullable=True)
+    expiry_reminder_sent_at = Column(TIMESTAMP, nullable=True)
+
     # Auditoría
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

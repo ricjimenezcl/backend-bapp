@@ -543,3 +543,70 @@ def get_transbank_status(
         token=tx.tbk_token,
         transbank=tbk_status,
     )
+
+
+@router.post("/transbank/internal/notify-expiring-slots", include_in_schema=False)
+async def notify_expiring_service_slots(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Endpoint interno protegido por secreto compartido, pensado para ser
+    invocado por un cron (Render Cron Job / cron-job.org) 1 vez al día.
+
+    Envía un email de recordatorio a los proveedores cuyo slot de servicio
+    pagado (provider_service_slots) vence dentro de los próximos 5 días,
+    evitando reenvíos duplicados via `expiry_reminder_sent_at`.
+    """
+    cron_secret = settings.CRON_SECRET
+    provided = request.headers.get("X-Cron-Secret")
+    if not cron_secret or provided != cron_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_end = now + timedelta(days=5)
+
+    slots = (
+        db.query(ProviderServiceSlot)
+        .filter(
+            ProviderServiceSlot.is_active.is_(True),
+            ProviderServiceSlot.expires_at.isnot(None),
+            ProviderServiceSlot.expires_at > now,
+            ProviderServiceSlot.expires_at <= window_end,
+            ProviderServiceSlot.expiry_reminder_sent_at.is_(None),
+        )
+        .all()
+    )
+
+    from app.services.email_service import email_service
+
+    sent = 0
+    failed = 0
+    for slot in slots:
+        provider = db.query(Provider).filter(Provider.id == slot.provider_id).first()
+        user = db.query(User).filter(User.id == provider.user_id).first() if provider else None
+        if not user or not user.email:
+            continue
+
+        business_name = "tu servicio"
+        if slot.service_provider_id:
+            from app.models.provider import ServiceProvider
+            sp = db.query(ServiceProvider).filter(ServiceProvider.id == slot.service_provider_id).first()
+            if sp:
+                business_name = sp.business_name
+
+        try:
+            ok = await email_service.send_service_slot_expiring_soon_email(
+                email=user.email,
+                business_name=business_name,
+                expires_at=slot.expires_at,
+            )
+            if ok:
+                slot.expiry_reminder_sent_at = now
+                db.commit()
+                sent += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+
+    return {"checked": len(slots), "sent": sent, "failed": failed}

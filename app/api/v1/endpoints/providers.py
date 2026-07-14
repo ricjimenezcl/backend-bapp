@@ -1077,20 +1077,25 @@ async def create_service_provider(
         service_count = count_result.scalar() or 0
 
         claimed_slot_id = None
+        claimed_slot_expires_at = None
         if service_count < 2:
             new_validation_status = "approved"
         else:
             # Buscar un slot de pago activo, vigente y sin reclamar (o ya propio
             # del proveedor) para asignarlo a este nuevo servicio.
+            # FOR UPDATE SKIP LOCKED: bloquea la fila hasta el commit de esta
+            # transacción para que 2 requests concurrentes NUNCA reclamen el
+            # mismo slot (garantiza 1 pago = 1 servicio nuevo).
             slot_result = await db.execute(
                 text(
-                    "SELECT id FROM provider_service_slots "
+                    "SELECT id, expires_at FROM provider_service_slots "
                     "WHERE provider_id = :pid "
                     "  AND service_provider_id IS NULL "
                     "  AND is_active = TRUE "
                     "  AND (expires_at IS NULL OR expires_at > now()) "
                     "ORDER BY id ASC "
-                    "LIMIT 1"
+                    "LIMIT 1 "
+                    "FOR UPDATE SKIP LOCKED"
                 ),
                 {"pid": provider.id}
             )
@@ -1103,6 +1108,7 @@ async def create_service_provider(
                 )
 
             claimed_slot_id = active_slot.id
+            claimed_slot_expires_at = active_slot.expires_at
             new_validation_status = "approved"
 
         # Crear el servicio via raw SQL para evitar el type mismatch de asyncpg
@@ -1158,6 +1164,29 @@ async def create_service_provider(
         logger.info(f"✅ Servicio creado exitosamente:")
         logger.info(f"   - Service ID: {new_service_id}")
         logger.info(f"   - Provider ID: {provider.id}")
+
+        # Email informando la fecha de bloqueo (vencimiento) del nuevo servicio
+        # publicado gracias a un slot pagado. No debe interrumpir la respuesta
+        # si falla el envío.
+        if claimed_slot_id is not None:
+            try:
+                from app.services.email_service import email_service
+                await email_service.send_service_slot_activated_email(
+                    email=current_user.email,
+                    business_name=service_data.nombre_prestador,
+                    expires_at=claimed_slot_expires_at,
+                )
+                await db.execute(
+                    text(
+                        "UPDATE provider_service_slots "
+                        "SET activation_email_sent_at = now() "
+                        "WHERE id = :slot_id"
+                    ),
+                    {"slot_id": claimed_slot_id}
+                )
+                await db.commit()
+            except Exception as email_err:
+                logger.error(f"❌ Error enviando email de activación de servicio: {email_err}")
 
         return ServiceProviderCreateResponse(
             id=new_service_id,
@@ -1229,6 +1258,10 @@ async def toggle_service_availability(
         if not service_provider:
             raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
+        is_newly_claimed_slot = False
+        newly_claimed_slot_expires_at = None
+        newly_claimed_slot_id = None
+
         if not is_available:
             # ── Deshabilitar: SQL directo para garantizar el UPDATE ──────────
             await db.execute(
@@ -1270,15 +1303,19 @@ async def toggle_service_availability(
                 # Necesita plan activo — verificar provider_service_slots
                 # Un slot puede estar ya asignado a este servicio (service_provider_id = sid)
                 # o disponible sin reclamar (service_provider_id IS NULL) tras un pago reciente.
+                # FOR UPDATE SKIP LOCKED evita que 2 requests concurrentes reclamen
+                # el mismo slot sin reclamar (1 pago = 1 servicio nuevo).
                 slot_result = await db.execute(
                     text(
-                        "SELECT id FROM provider_service_slots "
+                        "SELECT id, expires_at, service_provider_id, activation_email_sent_at "
+                        "FROM provider_service_slots "
                         "WHERE provider_id = :pid "
                         "  AND (service_provider_id = :sid OR service_provider_id IS NULL) "
                         "  AND is_active = TRUE "
                         "  AND (expires_at IS NULL OR expires_at > now()) "
                         "ORDER BY (service_provider_id = :sid) DESC, id ASC "
-                        "LIMIT 1"
+                        "LIMIT 1 "
+                        "FOR UPDATE SKIP LOCKED"
                     ),
                     {"pid": provider.id, "sid": service_id}
                 )
@@ -1289,6 +1326,10 @@ async def toggle_service_availability(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail="PLAN_REQUIRED"
                     )
+
+                is_newly_claimed_slot = active_slot.service_provider_id is None
+                newly_claimed_slot_expires_at = active_slot.expires_at if is_newly_claimed_slot else None
+                newly_claimed_slot_id = active_slot.id if is_newly_claimed_slot else None
 
                 # Reclamar el slot para este servicio si aún no estaba asignado
                 await db.execute(
@@ -1317,6 +1358,28 @@ async def toggle_service_availability(
             f"✅ Servicio {service_id} → is_available={new_is_available} "
             f"validation_status={new_validation_status}"
         )
+
+        # Email informando la fecha de bloqueo (vencimiento) cuando se reclama
+        # un slot pagado NUEVO (no reenviar si el slot ya estaba reclamado).
+        if is_newly_claimed_slot and newly_claimed_slot_id is not None:
+            try:
+                from app.services.email_service import email_service
+                await email_service.send_service_slot_activated_email(
+                    email=current_user.email,
+                    business_name=service_provider.business_name,
+                    expires_at=newly_claimed_slot_expires_at,
+                )
+                await db.execute(
+                    text(
+                        "UPDATE provider_service_slots "
+                        "SET activation_email_sent_at = now() "
+                        "WHERE id = :slot_id"
+                    ),
+                    {"slot_id": newly_claimed_slot_id}
+                )
+                await db.commit()
+            except Exception as email_err:
+                logger.error(f"❌ Error enviando email de activación de servicio: {email_err}")
 
         return {
             "id": service_id,

@@ -75,7 +75,11 @@ class Settings(BaseSettings):
     # Resend Email Service
     RESEND_API_KEY: Optional[str] = Field(default=None)
     RESEND_FROM_EMAIL: str = Field(default="BAPP <onboarding@resend.dev>")
-    
+
+    # Secreto compartido para invocar endpoints internos de cron (ej. recordatorios
+    # de vencimiento de planes). Debe configurarse en producción vía env var.
+    CRON_SECRET: Optional[str] = Field(default=None)
+
     # AWS Rekognition - Face verification
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)
