@@ -9,6 +9,7 @@ from sqlalchemy import or_, and_, update as sa_update, text
 from typing import List, Optional
 from datetime import datetime, timezone
 import base64
+import json
 import cloudinary.uploader
 
 from app.core.database import get_db_async
@@ -1077,12 +1078,12 @@ async def create_service_provider(
                 INSERT INTO service_providers
                     (provider_id, service_id, business_name, description, address,
                      latitude, longitude, phone, hourly_rate, is_available,
-                     validation_status, rating_avg, total_reviews,
+                     validation_status, portfolio_images, rating_avg, total_reviews,
                      created_at, updated_at)
                 VALUES
                     (:provider_id, :service_id, :business_name, :description, :address,
                      :latitude, :longitude, :phone, :hourly_rate, :is_available,
-                     :validation_status, 0.0, 0,
+                     :validation_status, CAST(:portfolio_images AS jsonb), 0.0, 0,
                      now(), now())
                 RETURNING id, created_at, updated_at
             """),
@@ -1098,6 +1099,7 @@ async def create_service_provider(
                 "hourly_rate":    None,
                 "is_available":   new_validation_status == "approved",
                 "validation_status": new_validation_status,
+                "portfolio_images": json.dumps(service_data.portfolio_images) if service_data.portfolio_images is not None else None,
             }
         )
         row = insert_result.fetchone()

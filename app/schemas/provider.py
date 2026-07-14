@@ -152,6 +152,7 @@ class ServiceProviderCreateRequest(BaseModel):
     lat: Decimal
     lng: Decimal
     id_contacto: int  # user_id del proveedor
+    portfolio_images: Optional[List[str]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
