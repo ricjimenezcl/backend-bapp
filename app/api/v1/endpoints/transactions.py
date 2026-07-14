@@ -69,6 +69,7 @@ def get_my_transactions(
                 "status": transaction.status.value,
                 "transaction_id": transaction.transaction_id,
                 "platform_transaction_id": transaction.platform_transaction_id,
+                "platform_order_id": transaction.platform_order_id,
                 "activated_at": transaction.activated_at,
                 "expires_at": transaction.expires_at,
                 "created_at": transaction.created_at,

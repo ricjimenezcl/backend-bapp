@@ -7,9 +7,10 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -105,15 +106,19 @@ def _is_allowed_base_url(url: str) -> bool:
     return normalized in allowed
 
 
-def _build_return_url(request: Request, preferred_return_url: str | None = None) -> str:
+def _resolve_frontend_origin(request: Request, preferred_return_url: str | None = None) -> str:
+    """Determina el origin (scheme+host) del frontend al que se debe volver
+    tras el pago, validando contra ALLOWED_ORIGINS/FRONTEND_URL."""
+
     # 1) URL explícita enviada por frontend web/móvil webview
     if preferred_return_url and _is_allowed_base_url(preferred_return_url):
-        return preferred_return_url.rstrip("/") + "/payment/callback"
+        parsed = urlparse(preferred_return_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
 
     # 2) Origin del request actual
     origin = request.headers.get("origin")
     if origin and _is_allowed_base_url(origin):
-        return origin.rstrip("/") + "/payment/callback"
+        return origin.rstrip("/")
 
     # 3) Referer como fallback
     referer = request.headers.get("referer")
@@ -122,13 +127,29 @@ def _build_return_url(request: Request, preferred_return_url: str | None = None)
             parsed_ref = urlparse(referer)
             ref_base = f"{parsed_ref.scheme}://{parsed_ref.netloc}"
             if _is_allowed_base_url(ref_base):
-                return ref_base.rstrip("/") + "/payment/callback"
+                return ref_base
         except Exception:
             pass
 
     # 4) Configuración global por defecto
-    base = settings.FRONTEND_URL.rstrip("/")
-    return f"{base}/payment/callback"
+    return settings.FRONTEND_URL.rstrip("/")
+
+
+def _build_return_url(request: Request, preferred_return_url: str | None = None) -> str:
+    """Construye la return_url que se envía a Transbank.
+
+    Transbank Webpay Plus retorna al comercio mediante un POST (form-encoded,
+    con token_ws en el body) hacia esta return_url. Como el frontend es una
+    SPA estática, no puede leer parámetros enviados por POST. Por eso la
+    return_url apunta a un endpoint puente en este backend
+    (`/transbank/return`), que recibe el POST de Transbank y redirige (302)
+    al frontend con el token como query param (GET), que sí es legible por
+    Angular Router.
+    """
+    frontend_origin = _resolve_frontend_origin(request, preferred_return_url)
+    backend_base = str(request.base_url).rstrip("/")
+    query = urlencode({"origin": frontend_origin})
+    return f"{backend_base}/api/v1/payments/transbank/return?{query}"
 
 
 def _apply_benefit(db: Session, tx: Transaction) -> None:
@@ -174,6 +195,51 @@ def _make_buy_order(user_id: int, product_type: str) -> str:
     ts = int(time.time()) % 1000000  # últimos 6 dígitos del timestamp
     rand = uuid.uuid4().hex[:4].upper()
     return f"BAPP{ts}{rand}"
+
+
+@router.api_route("/transbank/return", methods=["GET", "POST"], include_in_schema=False)
+async def transbank_return_bridge(request: Request):
+    """Endpoint puente que recibe el retorno de Transbank.
+
+    Transbank Webpay Plus redirige al comercio con un POST form-encoded
+    (token_ws si el pago fue autorizado, o TBK_TOKEN si el usuario canceló/
+    abortó en Webpay). Este endpoint extrae esos valores y redirige (302,
+    GET) al frontend SPA con los mismos parámetros en la query string, que
+    sí es accesible desde el Angular Router.
+    """
+    token_ws: str | None = None
+    tbk_token: str | None = None
+
+    if request.method == "POST":
+        try:
+            form = await request.form()
+        except Exception:
+            form = {}
+        token_ws = form.get("token_ws") or None
+        tbk_token = form.get("TBK_TOKEN") or None
+
+    # Fallback / soporte para pruebas manuales vía GET
+    if not token_ws:
+        token_ws = request.query_params.get("token_ws")
+    if not tbk_token:
+        tbk_token = request.query_params.get("TBK_TOKEN")
+
+    origin_param = request.query_params.get("origin")
+    frontend_origin = (
+        origin_param if origin_param and _is_allowed_base_url(origin_param)
+        else settings.FRONTEND_URL.rstrip("/")
+    )
+
+    callback_params: Dict[str, str] = {}
+    if token_ws:
+        callback_params["token_ws"] = token_ws
+    if tbk_token:
+        callback_params["TBK_TOKEN"] = tbk_token
+
+    query = f"?{urlencode(callback_params)}" if callback_params else ""
+    redirect_url = f"{frontend_origin}/payment/callback{query}"
+
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/transbank/create", response_model=WebpayCreateTransactionResponse)

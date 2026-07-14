@@ -115,16 +115,16 @@ class TransactionResponse(BaseModel):
     """Schema for transaction responses"""
     id: int
     user_id: int
-    product_id: Optional[int]
+    product_id: Optional[int] = None
     platform: str
     amount: Decimal
     currency: str
     status: str
-    transaction_id: Optional[str]
-    platform_transaction_id: Optional[str]
-    platform_order_id: Optional[str]
-    activated_at: Optional[datetime]
-    expires_at: Optional[datetime]
+    transaction_id: Optional[str] = None
+    platform_transaction_id: Optional[str] = None
+    platform_order_id: Optional[str] = None
+    activated_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
