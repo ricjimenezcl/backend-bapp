@@ -232,6 +232,7 @@ async def get_my_provider_stats(
     from app.models.booking import Booking as _Booking
     from sqlalchemy import func as _func
     from sqlalchemy import case as _case
+    from datetime import datetime, timedelta
     stats_result = await db.execute(
         select(
             _func.count().label("total"),
@@ -240,6 +241,24 @@ async def get_my_provider_stats(
         ).where(_Booking.provider_id == provider.id)
     )
     row = stats_result.one()
+
+    # Clientes únicos que visitaron el servicio en últimos 90 días
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    sv_result = await db.execute(
+        text("""
+            SELECT COUNT(DISTINCT viewer_user_id)
+            FROM service_view_events
+            WHERE provider_id = :pid
+              AND viewer_user_id IS NOT NULL
+              AND viewed_at >= :cutoff
+        """),
+        {"pid": provider.id, "cutoff": cutoff}
+    )
+    service_views = sv_result.scalar() or 0
+
+    from app.infra.redis.cache import get_profile_views
+    profile_views = get_profile_views(provider.id)
+
     return {
         "total_bookings": row.total or 0,
         "pending_bookings": row.pending or 0,
@@ -247,6 +266,8 @@ async def get_my_provider_stats(
         "total_earnings": 0.0,
         "rating_avg": float(provider.rating_avg) if provider.rating_avg else 0.0,
         "is_profile_complete": bool(provider.run and provider.phone),
+        "service_views": service_views,
+        "profile_views": profile_views,
     }
 
 
