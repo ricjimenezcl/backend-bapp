@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
 from sqlalchemy import or_, and_, update as sa_update, text
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import base64
 import json
 import cloudinary.uploader
@@ -46,6 +46,49 @@ NO_REGISTRADO = "No registrado"
 SERVICE_NOT_FOUND = "Service not found or does not belong to this provider"
 
 router = APIRouter()
+
+
+async def _upsert_service_view_event(
+    db: AsyncSession,
+    provider_id: int,
+    viewer_user_id: int,
+    service_provider_id: Optional[int],
+) -> None:
+    """Mantiene un solo registro por cliente/proveedor y actualiza su última visita."""
+    from app.models.service_view_event import ServiceViewEvent
+
+    existing_result = await db.execute(
+        select(ServiceViewEvent)
+        .where(
+            ServiceViewEvent.provider_id == provider_id,
+            ServiceViewEvent.viewer_user_id == viewer_user_id,
+        )
+        .order_by(ServiceViewEvent.viewed_at.desc(), ServiceViewEvent.id.desc())
+    )
+    existing_events = existing_result.scalars().all()
+
+    if existing_events:
+        primary_event = existing_events[0]
+        primary_event.service_provider_id = service_provider_id
+        primary_event.viewed_at = func.now()
+
+        duplicate_ids = [event.id for event in existing_events[1:]]
+        for duplicate_id in duplicate_ids:
+            await db.execute(
+                text("DELETE FROM service_view_events WHERE id = :id"),
+                {"id": duplicate_id},
+            )
+        await db.flush()
+        return
+
+    db.add(
+        ServiceViewEvent(
+            provider_id=provider_id,
+            service_provider_id=service_provider_id,
+            viewer_user_id=viewer_user_id,
+        )
+    )
+    await db.flush()
 
 
 def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
@@ -608,13 +651,9 @@ async def get_provider_detailed(
     """
     # --- Registrar visita antes del cache (fail-open) ---
     try:
-        from app.infra.redis.cache import incr_service_views
-        incr_service_views(provider_id)
         logger.info(f"[tracking] /detailed provider={provider_id} viewer={'id='+str(viewer.id) if viewer else 'NONE (anónimo)'}")
         if viewer:
-            from app.models.service_view_event import ServiceViewEvent
             import traceback as _tb
-            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
             # Obtener primer servicio del proveedor (puede ser None)
             from app.models.provider import ServiceProvider as _SP
             sp_result = await db.execute(
@@ -622,25 +661,9 @@ async def get_provider_detailed(
             )
             first_sp_id = sp_result.scalar_one_or_none()
             logger.info(f"[tracking] provider={provider_id} first_sp_id={first_sp_id}")
-            # Deduplicar: máximo 1 evento por usuario por proveedor por día
-            existing = await db.execute(
-                select(ServiceViewEvent.id).where(
-                    ServiceViewEvent.provider_id == provider_id,
-                    ServiceViewEvent.viewer_user_id == viewer.id,
-                    ServiceViewEvent.viewed_at >= today_start,
-                )
-            )
-            if not existing.scalar_one_or_none():
-                evt = ServiceViewEvent(
-                    provider_id=provider_id,
-                    service_provider_id=first_sp_id,  # puede ser None
-                    viewer_user_id=viewer.id,
-                )
-                db.add(evt)
-                await db.commit()
-                logger.info(f"✅ ServiceViewEvent registrado: provider={provider_id} viewer={viewer.id} sp={first_sp_id}")
-            else:
-                logger.info(f"[tracking] visita ya registrada hoy: provider={provider_id} viewer={viewer.id}")
+            await _upsert_service_view_event(db, provider_id, viewer.id, first_sp_id)
+            await db.commit()
+            logger.info(f"✅ ServiceViewEvent upsert: provider={provider_id} viewer={viewer.id} sp={first_sp_id}")
         else:
             logger.info(f"[tracking] visita anónima a provider={provider_id} — token no recibido o inválido")
     except Exception as e:
@@ -1310,37 +1333,15 @@ async def get_provider_service(
         
         logger.info(f"✅ Servicio encontrado: {service_provider.business_name}")
 
-        # Incrementar contador Redis (fail-open)
-        try:
-            from app.infra.redis.cache import incr_service_views
-            incr_service_views(service_provider.provider_id)
-        except Exception:
-            pass
-
-        # Registrar evento de visita en BD (fail-open, deduplicado por día)
+        # Registrar evento de visita en BD (fail-open, un registro por cliente/proveedor)
         if viewer is not None:
             try:
-                from app.models.service_view_event import ServiceViewEvent
-                from sqlalchemy import and_ as _and, cast as _cast, Date as _Date, func as _func
-                # Evitar duplicados: un usuario genera un evento por servicio por día
-                today_start = _func.date_trunc("day", _func.now())
-                dup = await db.execute(
-                    select(ServiceViewEvent.id).where(
-                        _and(
-                            ServiceViewEvent.service_provider_id == service_provider.id,
-                            ServiceViewEvent.viewer_user_id == viewer.id,
-                            ServiceViewEvent.viewed_at >= today_start,
-                        )
-                    )
+                await _upsert_service_view_event(
+                    db,
+                    service_provider.provider_id,
+                    viewer.id,
+                    service_provider.id,
                 )
-                if dup.scalar_one_or_none() is None:
-                    evt = ServiceViewEvent(
-                        provider_id=service_provider.provider_id,
-                        service_provider_id=service_provider.id,
-                        viewer_user_id=viewer.id,
-                    )
-                    db.add(evt)
-                    await db.flush()   # no commit aquí, se hace al final del request
             except Exception:
                 pass
 
@@ -1694,9 +1695,9 @@ async def get_provider_stats(
     - Servicios: total, activos (approved), pendientes (pending)
     - Reservas: total, completadas, pendientes
     - Rating promedio
-    - Vistas al perfil y a servicios (contadores Redis)
+    - Vistas al perfil y clientes únicos interesados en servicios
     """
-    from app.infra.redis.cache import get_profile_views, get_service_views
+    from app.infra.redis.cache import get_profile_views
 
     try:
         # ── Servicios ─────────────────────────────────────────────────────────
@@ -1741,9 +1742,20 @@ async def get_provider_stats(
         rating_row = rating_result.fetchone()
         average_rating = float(rating_row.rating_avg) if rating_row and rating_row.rating_avg else 0.0
 
-        # ── Vistas (contadores Redis) ─────────────────────────────────────────
+        # ── Interés/visitas únicas ────────────────────────────────────────────
+        unique_viewers_cutoff = datetime.utcnow() - timedelta(days=90)
+        service_views_result = await db.execute(
+            text("""
+                SELECT COUNT(DISTINCT viewer_user_id)
+                FROM service_view_events
+                WHERE provider_id = :pid
+                  AND viewer_user_id IS NOT NULL
+                  AND viewed_at >= :cutoff
+            """),
+            {"pid": provider_id, "cutoff": unique_viewers_cutoff}
+        )
         profile_views = get_profile_views(provider_id)
-        service_views = get_service_views(provider_id)
+        service_views = service_views_result.scalar() or 0
 
         return {
             "total_services":     int(total_services),
