@@ -10,6 +10,7 @@ from jose import JWTError, jwt
 import secrets
 from datetime import datetime, timedelta, timezone
 from app.models.user import User
+from sqlalchemy import func
 from sqlalchemy.future import select
 from app.core.database import get_db_async
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,9 +64,21 @@ async def reset_password(
     email: str = Body(..., embed=True),
     db: AsyncSession = Depends(get_db_async)
 ):
+    email_normalized = (email or "").strip().lower()
+    if not email_normalized:
+        raise HTTPException(
+            status_code=400,
+            detail="Debes ingresar un correo electrónico."
+        )
+    if "@" not in email_normalized or "." not in email_normalized.split("@")[-1]:
+        raise HTTPException(
+            status_code=400,
+            detail="Debes ingresar un correo electrónico válido."
+        )
+
     # Rate limit: 3 solicitudes por email por hora
     try:
-        rl_key = f"rate:auth:reset:{email.lower()}"
+        rl_key = f"rate:auth:reset:{email_normalized}"
         if not rate_limit(rl_key, 3, 3600):
             raise HTTPException(
                 status_code=429,
@@ -75,36 +88,47 @@ async def reset_password(
         raise
     except Exception:
         pass  # fail-open
-    logger.info(f"Password reset requested for: {email}")
-    result = await db.execute(select(User).where(User.email == email))
+    logger.info(f"Password reset requested for: {email_normalized}")
+    result = await db.execute(
+        select(User).where(func.lower(User.email) == email_normalized)
+    )
     user = result.scalar_one_or_none()
-    if user:
-        reset_token = secrets.token_urlsafe(32)
-        expiration = datetime.now() + timedelta(hours=1)
-        user.reset_token = reset_token
-        user.reset_token_expiration = expiration
-        await db.commit()
-        logger.info(f"Password reset token generated for {email}")
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="No existe un usuario con ese correo electrónico."
+        )
 
-        # Enviar correo de recuperación
-        try:
-            # Obtener nombre del perfil (si existe) o usar email como fallback
-            full_name = "Usuario"
-            if user.role == "CLIENT" and hasattr(user, 'client_profile') and user.client_profile:
-                full_name = user.client_profile.full_name
-            elif user.role == "PROVIDER" and hasattr(user, 'provider_profile') and user.provider_profile:
-                full_name = user.provider_profile.full_name
-            
-            await email_service.send_password_reset_email(
-                email=user.email,
-                user_name=full_name,
-                token=reset_token
-            )
-            logger.info(f"Password reset email sent to {email}")
-        except Exception as e:
-            logger.error(f"Error sending password reset email to {email}: {e}")
+    reset_token = secrets.token_urlsafe(32)
+    expiration = datetime.now() + timedelta(hours=1)
+    user.reset_token = reset_token
+    user.reset_token_expiration = expiration
+    await db.commit()
+    logger.info(f"Password reset token generated for {email_normalized}")
 
-    return JSONResponse({"message": "Si el correo existe, recibirás instrucciones para restablecer tu contraseña."})
+    # Enviar correo de recuperación
+    try:
+        # Obtener nombre del perfil (si existe) o usar email como fallback
+        full_name = "Usuario"
+        if user.role == "CLIENT" and hasattr(user, 'client_profile') and user.client_profile:
+            full_name = user.client_profile.full_name
+        elif user.role == "PROVIDER" and hasattr(user, 'provider_profile') and user.provider_profile:
+            full_name = user.provider_profile.full_name
+        
+        await email_service.send_password_reset_email(
+            email=user.email,
+            user_name=full_name,
+            token=reset_token
+        )
+        logger.info(f"Password reset email sent to {email_normalized}")
+    except Exception as e:
+        logger.error(f"Error sending password reset email to {email_normalized}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo enviar el correo de recuperación. Intenta nuevamente."
+        )
+
+    return JSONResponse({"message": "Te enviamos instrucciones para restablecer tu contraseña a tu correo electrónico."})
 
 # Endpoint para establecer nueva contraseña
 @router.post("/set-new-password")
