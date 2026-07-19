@@ -20,6 +20,7 @@ from .transaction import Transaction
 from .provider_service_slot import ProviderServiceSlot
 from .service_view_unlock import ServiceViewUnlock
 from .service_view_event import ServiceViewEvent
+from .banned_word import BannedWord, BannedWordSeverity
 
 __all__ = [
     "User", 
@@ -44,5 +45,7 @@ __all__ = [
     "Message",
     "MessageStatus",
     "ConversationInvitation",
-    "ConversationBlock"
+    "ConversationBlock",
+    "BannedWord",
+    "BannedWordSeverity",
 ]

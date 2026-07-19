@@ -25,7 +25,7 @@ try:
         ProviderVerification, Gallery, Conversation,
         ConversationParticipant, Message, MessageStatus,
         ConversationInvitation, ConversationBlock,
-        ServiceViewUnlock, ServiceViewEvent,
+        ServiceViewUnlock, ServiceViewEvent, BannedWord,
     )
 except ImportError as e:
     import sys
@@ -121,6 +121,7 @@ async def lifespan(app: FastAPI):
         ("014 (notifications)", migrations_dir / "014_create_notifications_table.sql"),
         ("017 (transbank fields)", migrations_dir / "017_transbank_webpay_fields.sql"),
         ("019 (service slot notifications)", migrations_dir / "019_service_slot_notifications.sql"),
+        ("020 (banned words)", migrations_dir / "020_create_banned_words.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:

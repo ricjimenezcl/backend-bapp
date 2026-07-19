@@ -14,6 +14,7 @@ import re
 from app.core.database import get_db_async
 from app.core.config import settings
 from app.services.chat_service import ChatService
+from app.services.content_filter import ContentFilterService
 from app.services.notification_service import NotificationService
 from app.api.websocket.connection_manager import connection_manager
 from app.infra.pubsub import flush_offline_queue_async
@@ -211,6 +212,18 @@ async def websocket_unified_endpoint(
                         if not content or len(content) > 2000:
                             continue
 
+                        content_filter = ContentFilterService(db)
+                        moderation = await content_filter.validate_text(content)
+                        if moderation.blocked:
+                            await websocket.send_json({
+                                "channel": "chat",
+                                "type": "error",
+                                "code": "OFFENSIVE_CONTENT_BLOCKED",
+                                "message": "El mensaje contiene terminos no permitidos.",
+                                "matches": [m.model_dump() for m in moderation.matches],
+                            })
+                            continue
+
                         allowed = await asyncio.get_event_loop().run_in_executor(
                             None, rate_limit, f"rate:chat:msg:{user_id}", 30, 60
                         )
@@ -242,6 +255,7 @@ async def websocket_unified_endpoint(
                             ),
                             "channel": "chat",
                             "conversation_id": conversation_id,
+                            "content_flagged": moderation.flagged,
                         }
                         await connection_manager.broadcast_to_chat_room(conversation_id, response)
 
@@ -456,6 +470,17 @@ async def websocket_chat_endpoint(
                     if not content:
                         continue
 
+                    content_filter = ContentFilterService(db)
+                    moderation = await content_filter.validate_text(content)
+                    if moderation.blocked:
+                        await websocket.send_json({
+                            'type': 'error',
+                            'code': 'OFFENSIVE_CONTENT_BLOCKED',
+                            'message': 'El mensaje contiene terminos no permitidos.',
+                            'matches': [m.model_dump() for m in moderation.matches]
+                        })
+                        continue
+
                     # Save message to database
                     msg = await chat_service.send_message(
                         conversation_id=conversation_id,
@@ -477,6 +502,7 @@ async def websocket_chat_endpoint(
                         content=content,
                         timestamp=msg.created_at
                     )
+                    response['content_flagged'] = moderation.flagged
                     
                     # Broadcast to chat room
                     await connection_manager.broadcast_to_chat_room(

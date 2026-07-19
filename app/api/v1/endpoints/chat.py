@@ -18,6 +18,7 @@ from app.models.user import User, UserProfile
 from app.models.provider import Provider
 from app.models.chat import ChatConversation as Conversation  # Import with alias
 from app.services.chat_service import ChatService
+from app.services.content_filter import ContentFilterService
 from app.services.premium_service import PremiumService
 from app.infra.redis import get_chat_messages_cache, set_chat_messages_cache
 from app.infra.redis import get_chat_conversations_cache, set_chat_conversations_cache
@@ -427,6 +428,21 @@ async def send_message(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to send messages in this conversation"
             )
+
+        # Backend source of truth: validar contenido ofensivo antes de guardar/enviar.
+        filter_service = ContentFilterService(db)
+        moderation = await filter_service.validate_text(request.content)
+        if moderation.blocked:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "OFFENSIVE_CONTENT_BLOCKED",
+                    "field": "content",
+                    "message": "El mensaje contiene terminos no permitidos.",
+                    "matches": [m.model_dump() for m in moderation.matches],
+                },
+            )
+
         # Send message
         message = await service.send_message(
             conversation_id=conversation_id,
@@ -477,6 +493,7 @@ async def send_message(
                 ),
                 "channel": "chat",
                 "conversation_id": conversation_id,
+                "content_flagged": moderation.flagged,
             }
             await connection_manager.broadcast_to_chat_room(
                 conversation_id, ws_payload

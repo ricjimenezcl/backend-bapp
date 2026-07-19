@@ -6,6 +6,7 @@ from app.core.database import get_db_async
 from app.dependencies import get_current_active_user
 from app.models.user import User
 from app.schemas.review import CreateReviewRequest, ReviewResponse
+from app.services.content_filter import ContentFilterService
 from app.services.review_service import ReviewService
 from app.core.redis import cache_delete
 
@@ -22,6 +23,11 @@ async def create_review(
     """
     if current_user.role != "CLIENT":
         raise HTTPException(status_code=403, detail="Only clients can leave reviews")
+
+    # Backend es la fuente de verdad: validar comentario antes de crear la reseña.
+    if review_in.comment:
+        filter_service = ContentFilterService(db)
+        await filter_service.validate_or_raise(field_name="comment", text=review_in.comment)
 
     service = ReviewService(db)
     result = await service.create_review(current_user.id, review_in)

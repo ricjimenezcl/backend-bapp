@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from pydantic import BaseModel, Field
+from app.schemas.validators_content_filter import no_offensive_content
 
 
 # ─── Request ──────────────────────────────────────────────────────────────────
@@ -17,6 +18,8 @@ class CreateReviewRequest(BaseModel):
     booking_id: int = Field(..., description="ID de la reserva completada")
     rating: float = Field(..., ge=1.0, le=5.0, description="Calificación 1.0–5.0")
     comment: Optional[str] = Field(None, max_length=500, description="Comentario opcional")
+
+    _validate_comment_content = no_offensive_content("comment")
 
 
 # ─── Response ─────────────────────────────────────────────────────────────────
