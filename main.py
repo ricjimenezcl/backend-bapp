@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
         ("017 (transbank fields)", migrations_dir / "017_transbank_webpay_fields.sql"),
         ("019 (service slot notifications)", migrations_dir / "019_service_slot_notifications.sql"),
         ("020 (banned words)", migrations_dir / "020_create_banned_words.sql"),
+        ("021 (same email by role)", migrations_dir / "021_allow_same_email_by_role.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:

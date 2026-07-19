@@ -51,13 +51,40 @@ class AuthService:
         encoded_jwt = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
         return encoded_jwt
 
-    async def authenticate_user(self, email: str, password: str):
-        result = await self.db.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
-        
-        if not user or not self.verify_password(password, user.password):
+    async def authenticate_user(self, email: str, password: str, role: str | None = None):
+        normalized_email = (email or "").strip().lower()
+        query = select(User).where(func.lower(func.trim(User.email)) == normalized_email)
+
+        normalized_role = role.upper() if role else None
+        if normalized_role:
+            query = query.where(User.role == normalized_role)
+
+        result = await self.db.execute(query)
+        users = result.scalars().all()
+
+        if not users:
             return False
-        return user
+
+        valid_users = [
+            user for user in users
+            if user.password and self.verify_password(password, user.password)
+        ]
+
+        if not valid_users:
+            return False
+
+        if not normalized_role and len(valid_users) > 1:
+            roles = sorted({u.role for u in valid_users})
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "ROLE_SELECTION_REQUIRED",
+                    "message": "Email asociado a múltiples perfiles",
+                    "roles": roles,
+                },
+            )
+
+        return valid_users[0]
 
     async def register_user(self, user_data):
         """Deprecated: Use register_client or register_provider instead"""
@@ -88,7 +115,10 @@ class AuthService:
         normalized_phone = normalize_phone(client_data.phone) if client_data.phone else None
         logger.info("register_client attempt email=%s phone=%s", normalized_email, normalized_phone or 'N/A')
         result = await self.db.execute(
-            select(User).where(func.lower(func.trim(User.email)) == normalized_email)
+            select(User).where(
+                func.lower(func.trim(User.email)) == normalized_email,
+                User.role == "CLIENT"
+            )
         )
         existing_user = result.scalar_one_or_none()
         
@@ -223,7 +253,12 @@ class AuthService:
                     detail=PHONE_ALREADY_REGISTERED
                 )
 
-        result = await self.db.execute(select(User).where(func.lower(func.trim(User.email)) == normalized_email))
+        result = await self.db.execute(
+            select(User).where(
+                func.lower(func.trim(User.email)) == normalized_email,
+                User.role == "PROVIDER"
+            )
+        )
         existing_user = result.scalar_one_or_none()
         
         if existing_user:
@@ -316,8 +351,8 @@ class AuthService:
         
         return provider
 
-    async def login(self, username: str, password: str) -> dict:
-        user = await self.authenticate_user(username, password)
+    async def login(self, username: str, password: str, role: str | None = None) -> dict:
+        user = await self.authenticate_user(username, password, role)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

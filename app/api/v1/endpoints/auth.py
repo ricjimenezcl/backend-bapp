@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional, Annotated
 
 from app.dependencies import get_current_active_user
 
@@ -31,6 +31,22 @@ class LoginRequest(BaseModel):
     """Schema para el login"""
     username: str
     password: str
+    role: Optional[str] = None
+
+
+@router.get("/login-roles")
+async def get_login_roles(email: EmailStr, db: Annotated[AsyncSession, Depends(get_db_async)]):
+    """Retorna los roles disponibles para un correo (p.ej. CLIENT y PROVIDER)."""
+    normalized_email = (email or "").strip().lower()
+    result = await db.execute(
+        select(User.role).where(func.lower(func.trim(User.email)) == normalized_email)
+    )
+    roles = sorted({row[0] for row in result.all() if row and row[0]})
+    return {
+        "email": normalized_email,
+        "roles": roles,
+        "multiple_roles": len(roles) > 1,
+    }
 
 # Endpoint para solicitar recuperación de contraseña
 @router.post("/logout")
@@ -319,7 +335,7 @@ async def login(form_data: LoginRequest, db: AsyncSession = Depends(get_db_async
         except Exception:
             pass  # fail-open: si Redis falla, no bloqueamos el login
 
-        return await auth_service.login(form_data.username, form_data.password)
+        return await auth_service.login(form_data.username, form_data.password, form_data.role)
 
     except HTTPException:
         raise

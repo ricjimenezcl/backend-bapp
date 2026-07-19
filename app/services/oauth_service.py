@@ -148,13 +148,15 @@ class OAuthService:
         Si no existe, lo crea.
         Retorna el mismo dict que AuthService.create_access_token produce.
         """
-        # 1. Buscar por oauth_provider + oauth_id (login directo)
-        user = await self._find_user_by_oauth(oauth_provider, oauth_id)
+        normalized_role = role if role in ("CLIENT", "PROVIDER") else "CLIENT"
+
+        # 1. Buscar por oauth_provider + oauth_id + rol (login directo)
+        user = await self._find_user_by_oauth(oauth_provider, oauth_id, normalized_role)
         is_new_user = False
 
         if not user and email:
-            # 2. Buscar por email → vincular cuenta OAuth existente
-            user = await self._find_user_by_email(email)
+            # 2. Buscar por email + rol → vincular cuenta OAuth existente
+            user = await self._find_user_by_email(email, normalized_role)
             if user:
                 await self._link_oauth_to_user(user, oauth_provider, oauth_id, avatar_url)
                 # No es nuevo, el email ya existía
@@ -176,7 +178,7 @@ class OAuthService:
                 oauth_provider=oauth_provider,
                 oauth_id=oauth_id,
                 avatar_url=avatar_url,
-                role=role,
+                role=normalized_role,
             )
         else:
             # Asegurar que el perfil exista incluso si el usuario ya existía
@@ -276,18 +278,19 @@ class OAuthService:
                 else:
                     user.provider_profile = provider_profile
 
-    async def _find_user_by_oauth(self, provider: str, oauth_id: str) -> Optional[User]:
+    async def _find_user_by_oauth(self, provider: str, oauth_id: str, role: str) -> Optional[User]:
         result = await self.db.execute(
             select(User).where(
                 User.oauth_provider == provider,
                 User.oauth_id == oauth_id,
+                User.role == role,
             )
         )
         return result.scalar_one_or_none()
 
-    async def _find_user_by_email(self, email: str) -> Optional[User]:
+    async def _find_user_by_email(self, email: str, role: str) -> Optional[User]:
         result = await self.db.execute(
-            select(User).where(User.email == email)
+            select(User).where(User.email == email, User.role == role)
         )
         return result.scalar_one_or_none()
 
