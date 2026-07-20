@@ -120,6 +120,7 @@ class Booking(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    reminder_24h_sent_at = Column(DateTime, nullable=True)
     
     # Relaciones con otros modelos
     client = relationship("User", foreign_keys=[client_id], back_populates="bookings_as_client")

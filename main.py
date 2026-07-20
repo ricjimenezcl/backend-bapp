@@ -123,6 +123,7 @@ async def lifespan(app: FastAPI):
         ("019 (service slot notifications)", migrations_dir / "019_service_slot_notifications.sql"),
         ("020 (banned words)", migrations_dir / "020_create_banned_words.sql"),
         ("021 (same email by role)", migrations_dir / "021_allow_same_email_by_role.sql"),
+        ("022 (booking reminder 24h)", migrations_dir / "022_booking_reminder_24h.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:
@@ -166,7 +167,10 @@ async def lifespan(app: FastAPI):
         """
         Cron job de reservas — se ejecuta cada hora.
 
-        Caso 1 (APPROVED/CONFIRMED/IN_PROGRESS → COMPLETED):
+                Caso 0 (APPROVED/CONFIRMED/IN_PROGRESS con cita en <=24h):
+                    Envía recordatorio único a cliente y proveedor (email + notificación in-app).
+
+                Caso 1 (APPROVED/CONFIRMED/IN_PROGRESS → COMPLETED):
           Si la fecha + hora + duración ya terminó, marca la reserva como COMPLETED
           y envía notificación in-app + email SES al cliente con link de reseña.
 
@@ -179,6 +183,7 @@ async def lifespan(app: FastAPI):
         from app.core.database import get_db_async
         from app.models.booking import Booking, BookingStatus
         from app.models.user import User as _User
+        from app.models.provider import Provider as _Provider
         from app.models.notification import NotificationType
         from app.services.notification_service import NotificationService
         from app.services.email_service import get_email_service
@@ -197,6 +202,139 @@ async def lifespan(app: FastAPI):
                 frontend_url = settings.FRONTEND_URL
 
                 async for db in get_db_async():
+
+                    # ──────────────────────────────────────────────────────────
+                    # CASO 0: recordatorio único cuando faltan <=24h para la cita
+                    # ──────────────────────────────────────────────────────────
+                    reminder_candidates_result = await db.execute(
+                        select(Booking).where(
+                            Booking.status.in_([
+                                BookingStatus.APPROVED,
+                                BookingStatus.CONFIRMED,
+                                BookingStatus.IN_PROGRESS,
+                            ]),
+                            Booking.scheduled_date.isnot(None),
+                            Booking.scheduled_time.isnot(None),
+                            Booking.reminder_24h_sent_at.is_(None),
+                        )
+                    )
+                    reminder_candidates = reminder_candidates_result.scalars().all()
+
+                    reminder_sent = 0
+                    for b in reminder_candidates:
+                        try:
+                            start_dt = _dt.combine(b.scheduled_date, b.scheduled_time)
+                            delta = start_dt - now_utc.replace(tzinfo=None)
+
+                            # Resiliente ante drift/restarts: cualquier cita próxima dentro de 24h.
+                            if not (timedelta(seconds=0) < delta <= timedelta(hours=24)):
+                                continue
+
+                            client_r = await db.execute(select(_User).where(_User.id == b.client_id))
+                            client = client_r.scalar_one_or_none()
+
+                            provider_row = await db.execute(select(_Provider).where(_Provider.id == b.provider_id))
+                            provider = provider_row.scalar_one_or_none()
+                            provider_user = None
+                            if provider:
+                                provider_user_r = await db.execute(select(_User).where(_User.id == provider.user_id))
+                                provider_user = provider_user_r.scalar_one_or_none()
+
+                            if not client or not provider_user:
+                                continue
+
+                            when_text = start_dt.strftime("%d/%m/%Y %H:%M")
+                            service_name = b.service_category or "Servicio"
+
+                            notification_svc = NotificationService(db)
+
+                            # In-app cliente/proveedor
+                            await notification_svc.create_booking_notification(
+                                user_id=b.client_id,
+                                notification_type=NotificationType.BOOKING_REMINDER_24H,
+                                booking_id=b.id,
+                                message=f"Tu reserva de {service_name} es el {when_text}.",
+                            )
+                            await notification_svc.create_booking_notification(
+                                user_id=provider_user.id,
+                                notification_type=NotificationType.BOOKING_REMINDER_24H,
+                                booking_id=b.id,
+                                message=f"Tienes una reserva de {service_name} el {when_text}.",
+                            )
+
+                            # WebSocket real-time
+                            ws_base = {
+                                "type": "notification",
+                                "related_entity_id": b.id,
+                                "title": "Recordatorio de reserva",
+                                "is_read": False,
+                            }
+                            await connection_manager.broadcast_to_user(b.client_id, {
+                                **ws_base,
+                                "notification_type": "booking_reminder_24h",
+                                "content": f"Tu reserva de {service_name} es el {when_text}.",
+                                "message": f"Tu reserva de {service_name} es el {when_text}.",
+                            })
+                            await connection_manager.broadcast_to_user(provider_user.id, {
+                                **ws_base,
+                                "notification_type": "booking_reminder_24h",
+                                "content": f"Tienes una reserva de {service_name} el {when_text}.",
+                                "message": f"Tienes una reserva de {service_name} el {when_text}.",
+                            })
+
+                            # Pub/Sub offline
+                            publish_to_user(b.client_id, "booking_reminder_24h", {
+                                "booking_id": b.id,
+                                "related_entity_id": b.id,
+                            })
+                            publish_to_user(provider_user.id, "booking_reminder_24h", {
+                                "booking_id": b.id,
+                                "related_entity_id": b.id,
+                            })
+
+                            # Email cliente/proveedor
+                            _asyncio.create_task(email_svc.send_booking_reminder(
+                                email=client.email,
+                                user_name=getattr(client, "full_name", "") or client.email,
+                                is_provider=False,
+                                data={
+                                    "title": "Recordatorio: tu reserva es en menos de 24 horas ⏰",
+                                    "message": f"Tu reserva de <strong>{service_name}</strong> está agendada para el <strong>{when_text}</strong>.",
+                                    "service_name": service_name,
+                                    "booking_date": when_text,
+                                    "other_party_name": getattr(provider_user, "full_name", "") or "Proveedor",
+                                    "location": b.location_address or "Ver en la app",
+                                    "action_text": "Ver mi reserva",
+                                    "action_url": f"{frontend_url}/client/tabs/bookings",
+                                }
+                            ))
+                            _asyncio.create_task(email_svc.send_booking_reminder(
+                                email=provider_user.email,
+                                user_name=getattr(provider_user, "full_name", "") or provider_user.email,
+                                is_provider=True,
+                                data={
+                                    "title": "Recordatorio: tienes una reserva en menos de 24 horas ⏰",
+                                    "message": f"Tienes una reserva de <strong>{service_name}</strong> agendada para el <strong>{when_text}</strong>.",
+                                    "service_name": service_name,
+                                    "booking_date": when_text,
+                                    "other_party_name": getattr(client, "full_name", "") or "Cliente",
+                                    "location": b.location_address or "Ver en la app",
+                                    "action_text": "Ver reservas",
+                                    "action_url": f"{frontend_url}/provider/tabs/bookings",
+                                }
+                            ))
+
+                            await db.execute(
+                                update(Booking)
+                                .where(Booking.id == b.id)
+                                .values(reminder_24h_sent_at=now_utc)
+                            )
+                            await db.commit()
+                            reminder_sent += 1
+
+                        except Exception as exc:
+                            logger.error(f"[CRON] ❌ Error sending 24h reminder for booking {b.id}: {exc}")
+                            await db.rollback()
 
                     # ──────────────────────────────────────────────────────────
                     # CASO 1: APPROVED / CONFIRMED / IN_PROGRESS → COMPLETED
@@ -298,10 +436,23 @@ async def lifespan(app: FastAPI):
                         select(Booking).where(
                             Booking.status == BookingStatus.PENDING,
                             Booking.scheduled_date.isnot(None),
-                            Booking.scheduled_date < now_utc.date(),
+                            Booking.scheduled_date <= now_utc.date(),
                         )
                     )
-                    expired_bookings = expired_result.scalars().all()
+                    pending_candidates = expired_result.scalars().all()
+
+                    expired_bookings = []
+                    for b in pending_candidates:
+                        try:
+                            if b.scheduled_time:
+                                pending_start = _dt.combine(b.scheduled_date, b.scheduled_time)
+                                if pending_start <= now_utc.replace(tzinfo=None):
+                                    expired_bookings.append(b)
+                            else:
+                                if b.scheduled_date < now_utc.date():
+                                    expired_bookings.append(b)
+                        except Exception:
+                            continue
 
                     for b in expired_bookings:
                         try:
@@ -331,7 +482,7 @@ async def lifespan(app: FastAPI):
                             await db.rollback()
 
                     logger.info(
-                        f"[CRON] Maintenance complete — completed: {len(to_complete)}, expired/deleted: {len(expired_bookings)}"
+                        f"[CRON] Maintenance complete — reminders_24h: {reminder_sent}, completed: {len(to_complete)}, expired/deleted: {len(expired_bookings)}"
                     )
 
             except Exception as exc:

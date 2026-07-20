@@ -76,6 +76,7 @@ class NotificationService:
         type_messages = {
             NotificationType.BOOKING_CONFIRMED: "Reserva Confirmada",
             NotificationType.BOOKING_REJECTED: "Reserva Rechazada",
+            NotificationType.BOOKING_REMINDER_24H: "Reserva en menos de 24 horas",
             NotificationType.BOOKING_COMPLETED: "Reserva Completada",
             NotificationType.BOOKING_REVIEW_REQUEST: "Califica tu servicio",
         }
