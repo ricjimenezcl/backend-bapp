@@ -45,6 +45,8 @@ class Token(BaseModel):
     user_id: int
     role: str
     email: str
+    status: str
+    terms_accepted: bool = False
     
     # Campos específicos según el rol
     provider_id: Optional[int] = None

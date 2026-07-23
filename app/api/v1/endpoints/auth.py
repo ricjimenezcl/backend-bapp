@@ -34,6 +34,11 @@ class LoginRequest(BaseModel):
     role: Optional[str] = None
 
 
+class SetNewPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
 @router.get("/login-roles")
 async def get_login_roles(email: EmailStr, db: Annotated[AsyncSession, Depends(get_db_async)]):
     """Retorna los roles disponibles para un correo (p.ej. CLIENT y PROVIDER)."""
@@ -116,7 +121,7 @@ async def reset_password(
         )
 
     reset_token = secrets.token_urlsafe(32)
-    expiration = datetime.now() + timedelta(hours=1)
+    expiration = datetime.now(timezone.utc) + timedelta(hours=1)
     user.reset_token = reset_token
     user.reset_token_expiration = expiration
     await db.commit()
@@ -149,21 +154,52 @@ async def reset_password(
 # Endpoint para establecer nueva contraseña
 @router.post("/set-new-password")
 async def set_new_password(
-    token: str = Body(...),
-    new_password: str = Body(...),
+    payload: SetNewPasswordRequest,
     db: AsyncSession = Depends(get_db_async)
 ):
+    token = (payload.token or "").strip()
+    new_password = payload.new_password or ""
+
+    if not token:
+        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+
     result = await db.execute(select(User).where(User.reset_token == token))
     user = result.scalar_one_or_none()
-    if not user or not user.reset_token_expiration or user.reset_token_expiration < datetime.now(timezone.utc):
+
+    token_expiration = user.reset_token_expiration if user else None
+    if isinstance(token_expiration, str):
+        try:
+            token_expiration = datetime.fromisoformat(token_expiration.replace("Z", "+00:00"))
+        except ValueError:
+            token_expiration = None
+
+    if isinstance(token_expiration, datetime) and token_expiration.tzinfo is None:
+        # Compatibilidad: algunos registros históricos guardaron datetime naive.
+        token_expiration = token_expiration.replace(tzinfo=timezone.utc)
+
+    if not user or not isinstance(token_expiration, datetime):
         raise HTTPException(status_code=400, detail="Token inválido o expirado")
-    auth_service = AuthService(db)
-    user.password = auth_service.get_password_hash(new_password)
-    user.reset_token = None
-    user.reset_token_expiration = None
-    await db.commit()
-    logger.info(f"Password reset completed for user {user.email}")
-    return {"message": "Contraseña restablecida correctamente"}
+
+    if token_expiration < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+
+    try:
+        auth_service = AuthService(db)
+        user.password = auth_service.get_password_hash(new_password)
+        user.reset_token = None
+        user.reset_token_expiration = None
+        await db.commit()
+        logger.info(f"Password reset completed for user {user.email}")
+        return {"message": "Contraseña restablecida correctamente"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception(f"Unexpected error in set-new-password for token={token[:8]}...: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error during password reset"
+        )
 
 # (El router ya está definido arriba, no volver a definirlo)
 

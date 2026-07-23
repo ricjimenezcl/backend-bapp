@@ -394,9 +394,11 @@ class AuthService:
             "token_type": "bearer",
             "user_id": user.id,
             "role": user.role,
+            "status": user.status,
             "email": user.email,
             "provider_id": provider_id,
-            "client_id": client_id
+            "client_id": client_id,
+            "terms_accepted": user.terms_accepted,
         }
     
     async def upload_provider_avatar(self, provider_id: int, file) -> str:
