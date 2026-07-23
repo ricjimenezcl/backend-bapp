@@ -91,13 +91,19 @@ class OAuthService:
 
     # ─── Facebook ──────────────────────────────────────────────────────────────
 
-    async def login_with_facebook(self, access_token: str, role: str = "CLIENT") -> dict:
+    async def login_with_facebook(
+        self,
+        access_token: str,
+        role: str = "CLIENT",
+        email_hint: Optional[str] = None,
+    ) -> dict:
         """Valida access_token de Facebook y retorna JWT interno."""
         user_info = await self._validate_facebook_token(access_token)
+        normalized_hint = (email_hint or "").strip().lower() or None
         return await self._get_or_create_oauth_user(
             oauth_provider="facebook",
             oauth_id=user_info["id"],
-            email=user_info.get("email"),
+            email=user_info.get("email") or normalized_hint,
             full_name=user_info.get("name", ""),
             avatar_url=user_info.get("picture", {}).get("data", {}).get("url"),
             role=role,

@@ -390,6 +390,7 @@ class GoogleLoginRequest(BaseModel):
 class FacebookLoginRequest(BaseModel):
     access_token: str
     role: str = "CLIENT"
+    email_hint: Optional[EmailStr] = None
 
 
 @router.post("/oauth/google")
@@ -439,7 +440,11 @@ async def facebook_oauth(
 
     from app.services.oauth_service import OAuthService
     oauth_service = OAuthService(db)
-    return await oauth_service.login_with_facebook(body.access_token, role=body.role)
+    return await oauth_service.login_with_facebook(
+        body.access_token,
+        role=body.role,
+        email_hint=body.email_hint,
+    )
 
 class AcceptTermsRequest(BaseModel):
     email_opt_in: bool = False
