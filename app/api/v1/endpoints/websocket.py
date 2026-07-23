@@ -3,7 +3,7 @@ WebSocket Endpoints for FASE 2 - Real-time Chat
 Handles WebSocket connections for chat and notifications
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from jose import JWTError, jwt
 import json
@@ -18,7 +18,7 @@ from app.services.content_filter import ContentFilterService
 from app.services.notification_service import NotificationService
 from app.api.websocket.connection_manager import connection_manager
 from app.infra.pubsub import flush_offline_queue_async
-from app.core.redis import rate_limit
+from app.core.redis import rate_limit, cache_get
 from sqlalchemy.future import select
 from app.models.user import User
 from app.models.provider import Provider
@@ -32,7 +32,7 @@ _unified_rooms: dict[int, set[int]] = {}
 
 
 # Helper function to verify JWT token
-def verify_ws_token(token: str) -> int:
+def verify_ws_token(token: str) -> int | None:
     """
     Verify WebSocket JWT token and return user_id
     Only validates JWT signature, user existence is checked separately if needed
@@ -42,18 +42,38 @@ def verify_ws_token(token: str) -> int:
             logger.error("❌ WebSocket: Empty token")
             return None
         
-        logger.info(f"🔑 WebSocket: Attempting to decode token...")
-        
         # Decode JWT token
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
-        
-        logger.info(f"✅ JWT decoded successfully. Payload: {payload}")
-        
+
+        if payload.get("token_type", "access") != "access":
+            logger.warning("⚠️ WebSocket: invalid token_type")
+            return None
+
+        jti = payload.get("jti")
+        if jti:
+            try:
+                if cache_get(f"blacklist:jwt:{jti}") is not None:
+                    logger.warning("⚠️ WebSocket: revoked token (blacklist)")
+                    return None
+            except Exception:
+                # Fail-open: no bloquear conexiones por fallas transitorias de Redis.
+                pass
+
         user_id: int = payload.get("user_id")
+        iat = payload.get("iat")
+        if user_id and iat:
+            try:
+                cutoff = cache_get(f"security:revoke:user:{user_id}:after")
+                if cutoff is not None and int(iat) <= int(cutoff):
+                    logger.warning("⚠️ WebSocket: token invalidado por cutoff de seguridad")
+                    return None
+            except Exception:
+                pass
+
         if user_id is None:
             logger.error("❌ WebSocket: No user_id in token payload")
             return None
@@ -80,7 +100,7 @@ def verify_ws_token(token: str) -> int:
 @router.websocket("/unified")
 async def websocket_unified_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db_async),
 ):
     """
@@ -101,20 +121,23 @@ async def websocket_unified_endpoint(
       { "type": "pong" }
       { "type": "ping" }
     """
-    # 1. Verificar token
-    user_id = verify_ws_token(token)
+    # 1. Obtener token de query o cookie HttpOnly para compatibilidad cookie-first.
+    token_candidate = token or websocket.cookies.get(settings.ACCESS_COOKIE_NAME)
+
+    # 2. Verificar token
+    user_id = verify_ws_token(token_candidate)
     if user_id is None:
         await websocket.accept()
         await websocket.close(code=4401, reason="Token expired or invalid")
         return
 
-    # 2. Aceptar + registrar en ConnectionManager
+    # 3. Aceptar + registrar en ConnectionManager
     await websocket.accept()
     await connection_manager.connect(websocket, user_id)
     _unified_rooms[user_id] = set()
     logger.info(f"✅ WS /unified conectado para user_id={user_id}")
 
-    # 3. Bienvenida
+    # 4. Bienvenida
     try:
         await websocket.send_json({
             "channel": "notification",
@@ -125,7 +148,7 @@ async def websocket_unified_endpoint(
     except Exception:
         pass
 
-    # 4. Flush offline queue (igual que /notifications)
+    # 5. Flush offline queue (igual que /notifications)
     try:
         pending_events = await flush_offline_queue_async(user_id)
         for event in pending_events:
@@ -139,7 +162,7 @@ async def websocket_unified_endpoint(
     chat_service = ChatService(db)
     notification_service = NotificationService(db)
 
-    # 5. Loop principal
+    # 6. Loop principal
     try:
         while True:
             try:

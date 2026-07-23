@@ -197,7 +197,7 @@ async def lifespan(app: FastAPI):
             logger.info("[CRON] Running booking maintenance...")
 
             try:
-                now_utc = datetime.now(timezone.utc)
+                now_utc = datetime.utcnow()
                 email_svc = get_email_service()
                 frontend_url = settings.FRONTEND_URL
 
@@ -224,7 +224,7 @@ async def lifespan(app: FastAPI):
                     for b in reminder_candidates:
                         try:
                             start_dt = _dt.combine(b.scheduled_date, b.scheduled_time)
-                            delta = start_dt - now_utc.replace(tzinfo=None)
+                            delta = start_dt - now_utc
 
                             # Resiliente ante drift/restarts: cualquier cita próxima dentro de 24h.
                             if not (timedelta(seconds=0) < delta <= timedelta(hours=24)):
@@ -356,7 +356,7 @@ async def lifespan(app: FastAPI):
                     for b in active_bookings:
                         try:
                             end_dt = _dt.combine(b.scheduled_date, b.scheduled_time) + timedelta(minutes=b.duration or 60)
-                            if end_dt <= now_utc.replace(tzinfo=None):
+                            if end_dt <= now_utc:
                                 to_complete.append(b)
                         except Exception:
                             continue

@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -10,29 +10,62 @@ from app.models.user import User
 from app.services.premium_service import PremiumService
 from typing import Optional
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 # Bearer sin auto_error=False — para endpoints públicos que registran el viewer si hay token
 _security_optional = HTTPBearer(auto_error=False)
 
 
+def _is_revoked_by_user_cutoff(payload: dict) -> bool:
+    user_id = payload.get("user_id")
+    iat = payload.get("iat")
+    if not user_id or not iat:
+        return False
+    try:
+        from app.core.redis import cache_get
+        cutoff = cache_get(f"security:revoke:user:{user_id}:after")
+        if cutoff is None:
+            return False
+        return int(iat) <= int(cutoff)
+    except Exception:
+        return False
+
+
 
 async def get_current_user_optional(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db_async)
 ) -> Optional[User]:
     """
     Devuelve el usuario si hay token válido.
     Si no hay token o es inválido, retorna None (NO lanza excepción).
     """
-    if not credentials:
+    token = credentials.credentials if credentials and credentials.credentials else request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    if not token:
         return None
 
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
+        token_type = payload.get("token_type", "access")
+        if token_type != "access":
+            return None
+
+        if _is_revoked_by_user_cutoff(payload):
+            return None
+
+        jti = payload.get("jti")
+        if jti:
+            try:
+                from app.core.redis import cache_get
+                if cache_get(f"blacklist:jwt:{jti}") is not None:
+                    return None
+            except Exception:
+                pass  # fail-open: si Redis falla no bloqueamos
+
         email: str = payload.get("sub")
         if not email:
             return None
@@ -45,7 +78,8 @@ async def get_current_user_optional(
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db_async)
 ) -> User:
     """Obtener usuario actual desde el token JWT"""
@@ -56,11 +90,22 @@ async def get_current_user(
     )
     
     try:
+        token = credentials.credentials if credentials and credentials.credentials else request.cookies.get(settings.ACCESS_COOKIE_NAME)
+        if not token:
+            raise credentials_exception
+
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM]
         )
+        token_type = payload.get("token_type", "access")
+        if token_type != "access":
+            raise credentials_exception
+
+        if _is_revoked_by_user_cutoff(payload):
+            raise credentials_exception
+
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
@@ -216,6 +261,22 @@ async def get_viewer_user(
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
+        token_type = payload.get("token_type", "access")
+        if token_type != "access":
+            return None
+
+        if _is_revoked_by_user_cutoff(payload):
+            return None
+
+        jti = payload.get("jti")
+        if jti:
+            try:
+                from app.core.redis import cache_get
+                if cache_get(f"blacklist:jwt:{jti}") is not None:
+                    return None
+            except Exception:
+                pass  # fail-open
+
         email: str = payload.get("sub")
         if not email:
             return None

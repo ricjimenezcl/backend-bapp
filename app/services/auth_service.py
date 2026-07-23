@@ -30,6 +30,7 @@ class AuthService:
         self.SECRET_KEY = settings.SECRET_KEY
         self.ALGORITHM = "HS256"
         self.ACCESS_TOKEN_EXPIRE_MINUTES = 120
+        self.REFRESH_TOKEN_EXPIRE_DAYS = getattr(settings, "REFRESH_TOKEN_EXPIRE_DAYS", 30)
 
     def verify_password(self, plain_password, hashed_password):
         # bcrypt solo admite hasta 72 bytes
@@ -39,7 +40,7 @@ class AuthService:
         # bcrypt solo admite hasta 72 bytes
         return self.pwd_context.hash(password[:72])
 
-    def create_access_token(self, data: dict, expires_delta: timedelta = None):
+    def create_access_token(self, data: dict, expires_delta: timedelta = None, token_type: str = "access"):
         to_encode = data.copy()
         now = datetime.now(timezone.utc)
         if expires_delta:
@@ -47,9 +48,16 @@ class AuthService:
         else:
             expire = now + timedelta(minutes=self.ACCESS_TOKEN_EXPIRE_MINUTES)
         jti = uuid.uuid4().hex
-        to_encode.update({"exp": expire, "iat": now, "jti": jti})
+        to_encode.update({"exp": expire, "iat": now, "jti": jti, "token_type": token_type})
         encoded_jwt = jwt.encode(to_encode, self.SECRET_KEY, algorithm=self.ALGORITHM)
         return encoded_jwt
+
+    def create_refresh_token(self, data: dict, expires_delta: timedelta = None):
+        if expires_delta:
+            refresh_exp = expires_delta
+        else:
+            refresh_exp = timedelta(days=self.REFRESH_TOKEN_EXPIRE_DAYS)
+        return self.create_access_token(data=data, expires_delta=refresh_exp, token_type="refresh")
 
     async def authenticate_user(self, email: str, password: str, role: str | None = None):
         normalized_email = (email or "").strip().lower()
@@ -388,9 +396,11 @@ class AuthService:
         access_token = self.create_access_token(
             data=token_payload, expires_delta=access_token_expires
         )
+        refresh_token = self.create_refresh_token(data=token_payload)
         
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "user_id": user.id,
             "role": user.role,

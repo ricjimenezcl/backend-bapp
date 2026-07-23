@@ -22,12 +22,21 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default="your-secret-key-here-change-in-production")
     ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
+
+    # Cookies de sesión (web)
+    ACCESS_COOKIE_NAME: str = Field(default="bapp_access")
+    REFRESH_COOKIE_NAME: str = Field(default="bapp_refresh")
+    COOKIE_DOMAIN: Optional[str] = Field(default=None)
+    COOKIE_SECURE: Optional[bool] = Field(default=None)
+    COOKIE_SAMESITE: Optional[str] = Field(default=None)
 
     # OAuth (optional for development)
     OAUTH_FB_CLIENT_ID: Optional[str] = Field(default=None)
     OAUTH_FB_CLIENT_SECRET: Optional[str] = Field(default=None)
     OAUTH_GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
     OAUTH_GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    RISC_GOOGLE_CLIENT_IDS: List[str] = Field(default=[])
 
     # Entorno de ejecución — controla endpoints de testing y modo sandbox
     # Valores: "development" | "staging" | "production"
@@ -133,5 +142,43 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 # Si no es JSON válido, asume que es una string separada por comas
                 self.ALLOWED_ORIGINS = [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
+
+        # Soporta JSON array o CSV para RISC_GOOGLE_CLIENT_IDS
+        if isinstance(self.RISC_GOOGLE_CLIENT_IDS, str):
+            try:
+                self.RISC_GOOGLE_CLIENT_IDS = json.loads(self.RISC_GOOGLE_CLIENT_IDS)
+            except json.JSONDecodeError:
+                self.RISC_GOOGLE_CLIENT_IDS = [
+                    cid.strip() for cid in self.RISC_GOOGLE_CLIENT_IDS.split(",") if cid.strip()
+                ]
+
+        self._validate_production_security()
+
+    def _validate_production_security(self) -> None:
+        """Valida mínimos de seguridad al iniciar en producción."""
+        if (self.ENVIRONMENT or "").lower() != "production":
+            return
+
+        weak_secret = self.SECRET_KEY in {
+            "",
+            "your-secret-key-here-change-in-production",
+            "change-me",
+            "secret",
+        }
+        if weak_secret or len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY insegura para producción. Usa un valor aleatorio de al menos 32 caracteres."
+            )
+
+        # Evitar llaves OAuth vacías en prod cuando se usa social login.
+        if self.OAUTH_GOOGLE_CLIENT_ID and not self.OAUTH_GOOGLE_CLIENT_SECRET:
+            raise ValueError("Falta OAUTH_GOOGLE_CLIENT_SECRET en producción")
+        if self.OAUTH_FB_CLIENT_ID and not self.OAUTH_FB_CLIENT_SECRET:
+            raise ValueError("Falta OAUTH_FB_CLIENT_SECRET en producción")
+
+        same_site = (self.COOKIE_SAMESITE or "none").lower()
+        secure = self.COOKIE_SECURE if self.COOKIE_SECURE is not None else True
+        if same_site == "none" and not secure:
+            raise ValueError("COOKIE_SECURE debe ser true cuando COOKIE_SAMESITE=none en producción")
 
 settings = Settings()

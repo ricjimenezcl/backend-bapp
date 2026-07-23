@@ -4,7 +4,7 @@ Handles reminders, completion, and status updates
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import select, update
 from app.infra.queue.job import Job, JobType
 from app.workers.base_worker import BaseWorker
@@ -92,7 +92,7 @@ class BookingWorker(BaseWorker):
             async with AsyncSessionLocal() as db:
                 from app.models.booking import Booking, BookingStatus
                 # 1. Marcar como COMPLETED en BD
-                now = datetime.now(timezone.utc)
+                now = datetime.utcnow()
                 await db.execute(
                     update(Booking)
                     .where(Booking.id == booking_id)

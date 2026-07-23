@@ -227,9 +227,17 @@ class OAuthService:
             "provider_id": provider_id,
             "client_id": client_id,
         })
+        refresh_token = self.auth_service.create_refresh_token(data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role,
+            "provider_id": provider_id,
+            "client_id": client_id,
+        })
 
         return {
             "access_token": token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "user_id": user.id,
             "role": user.role,

@@ -1,5 +1,8 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import event, inspect
+from sqlalchemy.sql.sqltypes import DateTime as SA_DateTime, TIMESTAMP as SA_TIMESTAMP
+from datetime import datetime, timezone
 import os
 
 from app.core.config import settings
@@ -30,6 +33,65 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 Base = declarative_base()
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    """Convert aware datetimes to UTC naive for DB columns without timezone."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _normalize_datetime_params(value):
+    """Recursively normalize aware datetimes inside SQL parameter containers."""
+    if isinstance(value, datetime):
+        return _to_utc_naive(value)
+    if isinstance(value, dict):
+        return {k: _normalize_datetime_params(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_normalize_datetime_params(v) for v in value)
+    if isinstance(value, list):
+        return [_normalize_datetime_params(v) for v in value]
+    return value
+
+
+@event.listens_for(engine_async.sync_engine, "before_cursor_execute", retval=True)
+def _normalize_datetime_sql_params(
+    conn,
+    cursor,
+    statement,
+    parameters,
+    context,
+    executemany,
+):
+    """Last-line defense for asyncpg naive/aware datetime mismatches."""
+    return statement, _normalize_datetime_params(parameters)
+
+
+@event.listens_for(Session, "before_flush")
+def _normalize_naive_datetime_columns(session: Session, flush_context, instances):
+    """Prevent asyncpg naive/aware errors on TIMESTAMP WITHOUT TIME ZONE columns."""
+    for obj in session.new.union(session.dirty):
+        try:
+            mapper = inspect(obj).mapper
+        except Exception:
+            continue
+
+        for attr in mapper.column_attrs:
+            column = attr.columns[0]
+            col_type = column.type
+
+            if not isinstance(col_type, (SA_DateTime, SA_TIMESTAMP)):
+                continue
+
+            # Only normalize columns that are NOT timezone-aware in DB schema.
+            if getattr(col_type, "timezone", False):
+                continue
+
+            key = attr.key
+            value = getattr(obj, key, None)
+            if isinstance(value, datetime) and value.tzinfo is not None:
+                setattr(obj, key, _to_utc_naive(value))
 
 # Dependency for async operations
 async def get_db_async():
