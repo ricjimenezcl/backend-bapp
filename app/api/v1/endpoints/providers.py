@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
 from sqlalchemy import or_, and_, update as sa_update, text
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime, timezone, timedelta
 import base64
 import json
@@ -394,13 +394,21 @@ async def get_nearby_providers_by_service_ids(
             limit=limit,
         )
         for p in providers:
-            if p.id in seen_sp_ids:
+            provider_id = p.get("id") if isinstance(p, dict) else getattr(p, "id", None)
+            if provider_id is None:
                 continue
-            seen_sp_ids.add(p.id)
+
+            if provider_id in seen_sp_ids:
+                continue
+            seen_sp_ids.add(provider_id)
             merged.append(p)
 
     # Ordenar por distancia y aplicar paginación final
-    merged.sort(key=lambda p: (p.distance if p.distance is not None else 999999))
+    def _distance(provider: Any) -> float:
+        value = provider.get("distance") if isinstance(provider, dict) else getattr(provider, "distance", None)
+        return float(value) if value is not None else 999999.0
+
+    merged.sort(key=_distance)
     return merged[skip: skip + limit]
 
 @router.get("/geocoding/search")
