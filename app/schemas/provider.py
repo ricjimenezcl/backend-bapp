@@ -25,6 +25,7 @@ class ProviderRegister(BaseModel):
     selfie: Optional[str] = None  # base64 o url temporal
     terms_accepted: bool = False
     email_opt_in: bool = False
+    registration_source: Optional[str] = "web"
 
     @validator('email')
     def normalize_email(cls, v):

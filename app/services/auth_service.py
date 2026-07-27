@@ -81,8 +81,18 @@ class AuthService:
         if not valid_users:
             return False
 
-        if not normalized_role and len(valid_users) > 1:
-            roles = sorted({u.role for u in valid_users})
+        verified_users = [user for user in valid_users if bool(user.email_verified)]
+        if not verified_users:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "EMAIL_NOT_VERIFIED",
+                    "message": "Debes verificar tu correo electrónico para iniciar sesión.",
+                },
+            )
+
+        if not normalized_role and len(verified_users) > 1:
+            roles = sorted({u.role for u in verified_users})
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -92,7 +102,7 @@ class AuthService:
                 },
             )
 
-        return valid_users[0]
+        return verified_users[0]
 
     async def register_user(self, user_data):
         """Deprecated: Use register_client or register_provider instead"""
@@ -117,7 +127,7 @@ class AuthService:
         
         return user
 
-    async def register_client(self, client_data: ClientRegister) -> User:
+    async def register_client(self, client_data: ClientRegister, registration_source: str = "web") -> User:
         # Verificar si el usuario ya existe
         normalized_email = client_data.email.strip().lower()
         normalized_phone = normalize_phone(client_data.phone) if client_data.phone else None
@@ -206,7 +216,8 @@ class AuthService:
 
         # Enviar correo de verificación de cuenta
         try:
-            verification_link = f"{settings.FRONTEND_URL}/auth/verify-email?token={verification_token}"
+            source = "mobile" if registration_source == "mobile" else "web"
+            verification_link = f"{settings.FRONTEND_URL.rstrip('/')}/auth/verify-email?token={verification_token}&source={source}"
             sent = await email_service.send_verification_email(
                 email=user_email,
                 user_name=client_data.full_name,
@@ -221,7 +232,7 @@ class AuthService:
         
         return user
 
-    async def register_provider(self, provider_data: ProviderRegister) -> Provider:
+    async def register_provider(self, provider_data: ProviderRegister, registration_source: str = "web") -> Provider:
         # Verificar si el usuario ya existe
         normalized_email = provider_data.email.strip().lower()
         normalized_phone = normalize_phone(provider_data.phone) if provider_data.phone else None
@@ -338,7 +349,8 @@ class AuthService:
 
         # Enviar correo de verificación de cuenta
         try:
-            verification_link = f"{settings.FRONTEND_URL}/auth/verify-email?token={verification_token}"
+            source = "mobile" if registration_source == "mobile" else "web"
+            verification_link = f"{settings.FRONTEND_URL.rstrip('/')}/auth/verify-email?token={verification_token}&source={source}"
             sent = await email_service.send_verification_email(
                 email=user_email,
                 user_name=provider_data.full_name,

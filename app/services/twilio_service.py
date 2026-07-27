@@ -23,6 +23,7 @@ class TwilioService:
                 settings.TWILIO_AUTH_TOKEN
             )
             self.from_phone = settings.TWILIO_PHONE_NUMBER
+            self.whatsapp_from = settings.TWILIO_WHATSAPP_NUMBER or settings.TWILIO_PHONE_NUMBER
             logger.info("✅ Twilio client initialized successfully")
         except Exception as e:
             logger.error(f"❌ Failed to initialize Twilio: {str(e)}")
@@ -202,7 +203,7 @@ class TwilioService:
                 return False
 
             # WhatsApp uses 'whatsapp:' prefix
-            from_whatsapp = f"whatsapp:{self.from_phone}"
+            from_whatsapp = f"whatsapp:{self.whatsapp_from}"
             to_whatsapp = f"whatsapp:{formatted_phone}"
 
             message_obj = self.client.messages.create(

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Annotated
+from typing import Any, Optional, Annotated, Literal
 import json
 
 from app.dependencies import get_current_active_user
@@ -45,6 +45,11 @@ class SetNewPasswordRequest(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
+
+
+def _normalize_registration_source(value: Optional[str]) -> Literal["web", "mobile"]:
+    normalized = (value or "").strip().lower()
+    return "mobile" if normalized == "mobile" else "web"
 
 
 def _cookie_secure() -> bool:
@@ -331,7 +336,6 @@ async def set_new_password(
             detail="Internal server error during password reset"
         )
 
-# (El router ya está definido arriba, no volver a definirlo)
 
 @router.post("/register-client", response_model=UserResponse)
 async def register_client(
@@ -356,7 +360,8 @@ async def register_client(
     auth_service = AuthService(db)
     try:
         logger.info(f"Registering CLIENT: {client_data.email}")
-        user = await auth_service.register_client(client_data)
+        registration_source = _normalize_registration_source(getattr(client_data, "registration_source", None))
+        user = await auth_service.register_client(client_data, registration_source=registration_source)
         return UserResponse(
             id=user.id,
             email=user.email,
@@ -438,7 +443,8 @@ async def register_provider(
             except Exception as e:
                 logger.warning(f"Avatar upload failed (non-critical): {e}")
 
-        provider = await auth_service.register_provider(provider_data)
+        registration_source = _normalize_registration_source(getattr(provider_data, "registration_source", None))
+        provider = await auth_service.register_provider(provider_data, registration_source=registration_source)
         logger.info(f"Provider registered successfully: ID={provider.id}")
 
         return ProviderResponse(
@@ -611,6 +617,7 @@ async def accept_terms(
 
 class SendVerificationEmailRequest(BaseModel):
     email: EmailStr
+    source: Optional[Literal["web", "mobile"]] = "web"
 
 
 class RefreshTokenRequest(BaseModel):
@@ -769,8 +776,9 @@ async def send_verification_email(
         user.email_verification_expiration = datetime.now() + timedelta(hours=24)
         await db.commit()
 
+        source = _normalize_registration_source(body.source)
         verification_link = (
-            f"{settings.FRONTEND_URL}/auth/verify-email?token={token}"
+            f"{settings.FRONTEND_URL.rstrip('/')}/auth/verify-email?token={token}&source={source}"
         )
         try:
             email_svc = get_email_service()
