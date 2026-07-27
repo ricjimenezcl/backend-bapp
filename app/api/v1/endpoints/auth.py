@@ -1115,10 +1115,11 @@ async def refresh_token(
         except Exception:
             pass  # fail-open
 
-    # Rate limit: 10 renovaciones por usuario por minuto
+    # Rate limit: 60 renovaciones por usuario por minuto
+    # Chat + notificaciones pueden disparar bursts concurrentes al volver con token vencido.
     try:
         rl_key = f"rate:auth:refresh:{user_id}"
-        if not rate_limit(rl_key, 10, 60):
+        if not rate_limit(rl_key, 60, 60):
             raise HTTPException(
                 status_code=429,
                 detail="Demasiados refresh de token. Intenta nuevamente en 1 minuto."
