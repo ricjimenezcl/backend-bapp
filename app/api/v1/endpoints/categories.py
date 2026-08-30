@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import text
 from typing import List
 import time
 
@@ -9,6 +10,7 @@ from app.models.service_category import MainCategory
 from app.models.service_category import ServiceCategory
 from app.schemas.main_category import MainCategoryResponse, MainCategoryWithServices
 from app.schemas.service_category import ServiceCategoryResponse
+from app.schemas.subcategory import SubcategoryResponse, ServiceNewResponse
 
 router = APIRouter()
 
@@ -122,5 +124,65 @@ async def get_all_services(db: AsyncSession = Depends(get_db_async)):
         services = result.scalars().all()
         _cache_set("all_services", services)
         return services
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving services: {str(e)}")
+
+
+@router.get("/main-categories/{main_category_id}/subcategories", response_model=List[SubcategoryResponse])
+async def get_subcategories_by_main_category(
+    main_category_id: int,
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Subcategorías de una categoría principal (tabla subcategories)."""
+    cache_key = f"subcategories_{main_category_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        result = await db.execute(
+            text(
+                "SELECT id, name, description, icon, main_category_id "
+                "FROM subcategories "
+                "WHERE main_category_id = :mcid "
+                "ORDER BY name"
+            ),
+            {"mcid": main_category_id}
+        )
+        rows = [dict(r._mapping) for r in result]
+        _cache_set(cache_key, rows)
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving subcategories: {str(e)}")
+
+
+@router.get("/subcategories/{subcategory_id}/services", response_model=List[ServiceNewResponse])
+async def get_services_by_subcategory(
+    subcategory_id: int,
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Servicios de una subcategoría.
+    Incluye service_category_id (FK a service_categories) mediante JOIN por nombre,
+    para mantener compatibilidad con el endpoint de búsqueda de proveedores.
+    """
+    cache_key = f"services_sub_{subcategory_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        result = await db.execute(
+            text(
+                "SELECT s.id, s.name, s.description, s.icon, s.subcategory_id, "
+                "       sc.id AS service_category_id "
+                "FROM services s "
+                "LEFT JOIN service_categories sc "
+                "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name)) "
+                "WHERE s.subcategory_id = :subid "
+                "ORDER BY s.name"
+            ),
+            {"subid": subcategory_id}
+        )
+        rows = [dict(r._mapping) for r in result]
+        _cache_set(cache_key, rows)
+        return rows
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving services: {str(e)}")

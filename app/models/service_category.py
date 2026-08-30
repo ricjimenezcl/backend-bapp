@@ -33,3 +33,4 @@ class MainCategory(Base):
 
     # Relationships
     service_categories = relationship("ServiceCategory", back_populates="main_category")
+    subcategories = relationship("Subcategory", back_populates="main_category")

@@ -1,6 +1,7 @@
 from .user import User, UserProfile
 from .provider import Provider, ServiceProvider
 from .service_category import ServiceCategory, MainCategory
+from .subcategory import Subcategory
 from .service import Service
 from .booking import Booking
 from .payment import Payment
