@@ -124,6 +124,7 @@ async def lifespan(app: FastAPI):
         ("020 (banned words)", migrations_dir / "020_create_banned_words.sql"),
         ("021 (same email by role)", migrations_dir / "021_allow_same_email_by_role.sql"),
         ("022 (booking reminder 24h)", migrations_dir / "022_booking_reminder_24h.sql"),
+        ("023 (subcategories + timestamp defaults)", migrations_dir / "023_subcategories_and_timestamps.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:
