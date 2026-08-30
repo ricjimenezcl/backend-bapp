@@ -167,7 +167,8 @@ class GeolocationService:
         Funciona en cualquier PostgreSQL sin extensiones extra.
         Complejidad O(n) — full scan. Adecuado hasta ~5k proveedores.
         """
-        inner = f"SELECT {_SELECT_COLS}, {_HAVERSINE_DISTANCE} {_JOIN_CLAUSE} {_BASE_WHERE}"
+        # DISTINCT ON (sp.provider_id): un solo row por proveedor (el más cercano)
+        inner = f"SELECT DISTINCT ON (sp.provider_id) {_SELECT_COLS}, {_HAVERSINE_DISTANCE} {_JOIN_CLAUSE} {_BASE_WHERE}"
 
         params = {
             "earth_radius": 6371,
@@ -184,6 +185,9 @@ class GeolocationService:
         elif service_id is not None:
             inner += " AND sp.service_id = :service_id"
             params["service_id"] = service_id
+
+        # ORDER BY requerido por DISTINCT ON: mantiene el servicio más cercano por proveedor
+        inner += " ORDER BY sp.provider_id, distance ASC"
 
         query = (
             f"SELECT * FROM ({inner}) AS sub"
@@ -211,8 +215,9 @@ class GeolocationService:
         """
         radius_meters = radius_km * 1000.0
 
-        query = f"""
-        SELECT {_SELECT_COLS}, {_POSTGIS_DISTANCE}
+        # DISTINCT ON (sp.provider_id): un solo row por proveedor (el más cercano)
+        inner = f"""
+        SELECT DISTINCT ON (sp.provider_id) {_SELECT_COLS}, {_POSTGIS_DISTANCE}
         {_JOIN_CLAUSE}
         {_BASE_WHERE}
           AND sp.location IS NOT NULL
@@ -232,13 +237,16 @@ class GeolocationService:
         }
 
         if service_name:
-            query += " AND sc.name = :service_name"
+            inner += " AND sc.name = :service_name"
             params["service_name"] = service_name
         elif service_id is not None:
-            query += " AND sp.service_id = :service_id"
+            inner += " AND sp.service_id = :service_id"
             params["service_id"] = service_id
 
-        query += " ORDER BY distance ASC LIMIT :limit OFFSET :skip"
+        # ORDER BY requerido por DISTINCT ON: mantiene el servicio más cercano por proveedor
+        inner += " ORDER BY sp.provider_id, distance ASC"
+
+        query = f"SELECT * FROM ({inner}) AS sub ORDER BY sub.distance ASC LIMIT :limit OFFSET :skip"
 
         return await self._execute_and_map(query, params)
 

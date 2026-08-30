@@ -382,7 +382,10 @@ async def get_nearby_providers_by_service_ids(
 
     geolocation_service = GeolocationService(db)
     merged: List[ServiceProviderResponse] = []
-    seen_sp_ids = set()
+    # Deduplicar por provider_id (no por service_provider.id) para que un
+    # proveedor con múltiples servicios que coincidan con la búsqueda aparezca
+    # solo una vez en los resultados.
+    seen_provider_ids = set()
 
     for sid in unique_ids:
         providers = await geolocation_service.find_nearby_providers_by_service_id(
@@ -394,13 +397,19 @@ async def get_nearby_providers_by_service_ids(
             limit=limit,
         )
         for p in providers:
-            provider_id = p.get("id") if isinstance(p, dict) else getattr(p, "id", None)
-            if provider_id is None:
+            # Usar provider_id como clave de deduplicación
+            dedup_key = (
+                p.get("provider_id") if isinstance(p, dict) else getattr(p, "provider_id", None)
+            )
+            if dedup_key is None:
+                # Fallback: si el campo no existe usar el id genérico
+                dedup_key = p.get("id") if isinstance(p, dict) else getattr(p, "id", None)
+            if dedup_key is None:
                 continue
 
-            if provider_id in seen_sp_ids:
+            if dedup_key in seen_provider_ids:
                 continue
-            seen_sp_ids.add(provider_id)
+            seen_provider_ids.add(dedup_key)
             merged.append(p)
 
     # Ordenar por distancia y aplicar paginación final
