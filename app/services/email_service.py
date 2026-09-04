@@ -166,16 +166,50 @@ class EmailService:
         self, client_email: str, client_name: str, provider_name: str,
         provider_rating: str = "5.0", chat_link: str = ""
     ) -> bool:
-        """Notifica al cliente que su reserva fue aceptada por el proveedor"""
+        """Compatibilidad: delega al nuevo correo de confirmación de reserva."""
+        return await self.send_booking_confirmation_email(
+            client_email=client_email,
+            client_name=client_name,
+            provider_name=provider_name,
+            booking_id="",
+            source="web",
+            chat_link=chat_link,
+        )
+
+    async def send_booking_confirmation_email(
+        self,
+        client_email: str,
+        client_name: str,
+        provider_name: str,
+        booking_id: str | int,
+        scheduled_date: str = "",
+        scheduled_time: str = "",
+        location: str = "A definir",
+        total_price: str = "0",
+        source: str = "web",
+        chat_link: str = "",
+    ) -> bool:
+        """Envía correo explícito de confirmación de reserva al cliente."""
+        booking_date = f"{scheduled_date} {scheduled_time}".strip() or "A coordinar"
+        origin_label = "la app móvil" if source == "mobile" else "el sitio web"
+
         html = self._render("booking_status", {
-            "title": "¡Tu reserva fue aceptada! ✅",
-            "message": f"<strong>{provider_name}</strong> ha aceptado tu solicitud de servicio. Ya puedes coordinar los detalles.",
+            "title": "¡Tu reserva fue confirmada!",
+            "message": (
+                f"<strong>{provider_name}</strong> confirmó tu reserva realizada desde {origin_label}. "
+                "Ya puedes continuar la coordinación del servicio."
+            ),
             "is_provider": False,
+            "service_name": "Servicio confirmado",
+            "booking_date": booking_date,
             "other_party_name": provider_name,
-            "action_text": "Ver mi Reserva",
+            "location": location,
+            "total_price": total_price,
+            "booking_id": booking_id,
+            "action_text": "Ver mi reserva",
             "action_url": chat_link or f"{settings.FRONTEND_URL}/client/bookings",
         })
-        return await self._send(client_email, "¡Tu reserva fue confirmada! - BAPP", html)
+        return await self._send(client_email, "Confirmación de reserva - BAPP Search", html)
 
     async def send_booking_rejected_email(
         self, client_email: str, client_name: str, provider_name: str, search_link: str = ""

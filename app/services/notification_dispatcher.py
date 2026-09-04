@@ -154,7 +154,8 @@ class NotificationDispatcher:
         self,
         booking: Booking,
         client: User,
-        provider: User
+        provider: User,
+        source: str = "web",
     ) -> dict:
         """
         Dispatch notifications when booking is accepted by provider
@@ -212,13 +213,22 @@ class NotificationDispatcher:
             else:
                 logger.warning(f"⚠️ WhatsApp failed for {client.phone_number}")
 
-            # 4. Send Email
-            email_result = await self.email_service.send_booking_accepted_email(
+            # 4. Send Email de confirmación
+            email_result = await self.email_service.send_booking_confirmation_email(
                 client_email=client.email,
                 client_name=client.full_name or client.email,
                 provider_name=provider.full_name or provider.email,
-                provider_rating=f"{provider.rating:.1f}" if hasattr(provider, 'rating') and provider.rating else "4.8",
-                chat_link=f"https://bappsearch.com/client/chat/{booking.conversation_id}" if hasattr(booking, 'conversation_id') else f"https://bappsearch.com/client/bookings/{booking.id}"
+                booking_id=booking.id,
+                scheduled_date=str(booking.scheduled_date) if booking.scheduled_date else "",
+                scheduled_time=str(booking.scheduled_time) if booking.scheduled_time else "",
+                location=booking.location_address or "A definir",
+                total_price=str(booking.total_price or "0"),
+                source=source,
+                chat_link=(
+                    f"https://bappsearch.com/client/chat/{booking.conversation_id}"
+                    if hasattr(booking, 'conversation_id')
+                    else f"https://bappsearch.com/client/bookings/{booking.id}"
+                ),
             )
             result["email"] = email_result
             if email_result:

@@ -81,10 +81,12 @@ BookingCreate = CreateBookingRequest
 class ConfirmBookingRequest(BaseModel):
     """Request para confirmar una reserva"""
     notes: Optional[str] = Field(None, max_length=500, description="Notas del proveedor")
+    source: str = Field("web", pattern=r"^(web|mobile)$", description="Origen de la confirmación")
     
     class Config:
         example = {
-            "notes": "Llegué 10 minutos antes"
+            "notes": "Llegué 10 minutos antes",
+            "source": "web"
         }
 
 

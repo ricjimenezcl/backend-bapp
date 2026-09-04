@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, and_
-from typing import List
+from typing import List, Optional
 from datetime import datetime, date, time, timedelta
 import logging
 
@@ -10,7 +10,7 @@ from app.dependencies import get_current_active_user, get_current_provider_user 
 from app.models.user import User
 from app.models.booking import Booking
 from app.models.provider import Provider, ProviderWorkingHours
-from app.schemas.booking import BookingCreate, BookingResponse
+from app.schemas.booking import BookingCreate, BookingResponse, ConfirmBookingRequest
 from app.services.booking_service import BookingService
 from app.services.premium_service import PremiumService
 from app.core.redis import cache_get, cache_set, rate_limit
@@ -336,6 +336,7 @@ async def approve_booking(
 @router.post("/{booking_id}/confirm", response_model=BookingResponse)
 async def confirm_booking_compat(
     booking_id: int,
+    confirm_request: Optional[ConfirmBookingRequest] = None,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db_async)
 ):
@@ -350,7 +351,12 @@ async def confirm_booking_compat(
         )
     booking_service = BookingService(db)
     try:
-        result = await booking_service.accept_booking_with_notifications(booking_id, current_user.id, db)
+        result = await booking_service.accept_booking_with_notifications(
+            booking_id,
+            current_user.id,
+            db_session=db,
+            source=(confirm_request.source if confirm_request else "web"),
+        )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except ValueError as e:

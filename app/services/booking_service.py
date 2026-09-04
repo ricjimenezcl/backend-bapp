@@ -598,6 +598,7 @@ class BookingService:
         booking_id: int,
         provider_id: int,
         db_session: AsyncSession = None,
+        source: str = "web",
     ) -> BookingResponse:
         """Accept booking and dispatch notifications."""
         response = await self.accept_booking(booking_id, provider_id)
@@ -624,17 +625,30 @@ class BookingService:
                 client_r = await self.db.execute(
                     select(User).where(User.id == booking.client_id)
                 )
-                provider_r = await self.db.execute(
-                    select(User).where(User.id == booking.provider_id)
+                provider_profile_r = await self.db.execute(
+                    select(Provider).where(Provider.id == booking.provider_id)
                 )
+                provider_profile = provider_profile_r.scalar_one_or_none()
+
+                provider_r = None
+                if provider_profile:
+                    provider_r = await self.db.execute(
+                        select(User).where(User.id == provider_profile.user_id)
+                    )
+
                 client = client_r.scalar_one_or_none()
-                provider = provider_r.scalar_one_or_none()
+                provider = provider_r.scalar_one_or_none() if provider_r else None
                 if client and provider:
                     from app.services.notification_dispatcher import NotificationDispatcher
                     import asyncio
                     nd = NotificationDispatcher(db_session or self.db)
                     asyncio.create_task(
-                        nd.dispatch_booking_accepted(booking, client, provider)
+                        nd.dispatch_booking_accepted(
+                            booking,
+                            client,
+                            provider,
+                            source=source,
+                        )
                     )
         except Exception as e:
             logger.error(f"Error dispatching accept notifications: {e}")
