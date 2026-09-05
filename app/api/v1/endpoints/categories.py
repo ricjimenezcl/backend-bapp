@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import text
-from typing import List
+from typing import List, Optional
 import time
 
 from app.core.database import get_db_async
@@ -108,6 +108,53 @@ async def get_service_category(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving service: {str(e)}")
+
+
+@router.get("/services/catalog", response_model=List[ServiceNewResponse])
+async def get_service_catalog(
+    q: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Obtener el catálogo completo de servicios desde la tabla services.
+
+    La respuesta incluye service_category_id para que el frontend siga
+    navegando con los IDs que consume el buscador de proveedores.
+    """
+    normalized_query = (q or "").strip()
+    cache_key = f"service_catalog::{normalized_query.lower()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        query = text(
+            "SELECT s.id, s.name, s.description, s.icon, s.subcategory_id, "
+            "       sc.id AS service_category_id "
+            "FROM services s "
+            "LEFT JOIN service_categories sc "
+            "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name)) "
+            "WHERE sc.id IS NOT NULL"
+        )
+        params = {}
+
+        if normalized_query:
+            query = text(
+                "SELECT s.id, s.name, s.description, s.icon, s.subcategory_id, "
+                "       sc.id AS service_category_id "
+                "FROM services s "
+                "LEFT JOIN service_categories sc "
+                "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name)) "
+                "WHERE sc.id IS NOT NULL "
+                "  AND (LOWER(s.name) LIKE :pattern OR LOWER(COALESCE(s.description, '')) LIKE :pattern)"
+            )
+            params["pattern"] = f"%{normalized_query.lower()}%"
+
+        result = await db.execute(query, params)
+        rows = [dict(row._mapping) for row in result]
+        _cache_set(cache_key, rows)
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving service catalog: {str(e)}")
 
 @router.get("/services", response_model=List[ServiceCategoryResponse])
 async def get_all_services(db: AsyncSession = Depends(get_db_async)):
