@@ -132,8 +132,7 @@ async def get_service_catalog(
             "       sc.id AS service_category_id "
             "FROM services s "
             "LEFT JOIN service_categories sc "
-            "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name)) "
-            "WHERE sc.id IS NOT NULL"
+            "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name))"
         )
         params = {}
 
@@ -144,8 +143,7 @@ async def get_service_catalog(
                 "FROM services s "
                 "LEFT JOIN service_categories sc "
                 "       ON LOWER(TRIM(s.name)) = LOWER(TRIM(sc.name)) "
-                "WHERE sc.id IS NOT NULL "
-                "  AND (LOWER(s.name) LIKE :pattern OR LOWER(COALESCE(s.description, '')) LIKE :pattern)"
+                "WHERE LOWER(s.name) LIKE :pattern OR LOWER(COALESCE(s.description, '')) LIKE :pattern"
             )
             params["pattern"] = f"%{normalized_query.lower()}%"
 
