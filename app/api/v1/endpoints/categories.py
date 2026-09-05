@@ -110,7 +110,7 @@ async def get_service_category(
         raise HTTPException(status_code=500, detail=f"Error retrieving service: {str(e)}")
 
 
-@router.get("/services/catalog", response_model=List[ServiceNewResponse])
+@router.get("/services-catalog", response_model=List[ServiceNewResponse])
 async def get_service_catalog(
     q: Optional[str] = None,
     db: AsyncSession = Depends(get_db_async)
