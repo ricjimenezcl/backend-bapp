@@ -43,10 +43,16 @@ _SELECT_COLS = """
     sc.icon        AS service_icon
 """
 
+# NOTA: alias "sc" se mantiene por compatibilidad con el resto del archivo,
+# pero ahora apunta a la tabla "services" (nueva taxonomía), que es el
+# verdadero destino de la FK service_providers_service_id_fkey (confirmado
+# en producción). Antes apuntaba a "service_categories", lo que dejaba
+# service_category_name/service_icon en NULL para servicios de la nueva
+# taxonomía.
 _JOIN_CLAUSE = """
     FROM service_providers sp
     JOIN providers p ON sp.provider_id = p.id
-    LEFT JOIN service_categories sc ON sp.service_id = sc.id
+    LEFT JOIN services sc ON sp.service_id = sc.id
 """
 
 _BASE_WHERE = """

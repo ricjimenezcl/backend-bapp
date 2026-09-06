@@ -16,4 +16,7 @@ class Service(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    subcategory = relationship("Subcategory", back_populates="services")
+    # lazy='joined' para que la property de compatibilidad ServiceProvider.service_category
+    # pueda acceder a subcategory sin necesidad de lazy-load síncrono en contexto async.
+    subcategory = relationship("Subcategory", back_populates="services", lazy='joined')
+    service_providers = relationship("ServiceProvider", back_populates="service")

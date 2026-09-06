@@ -21,7 +21,6 @@ from app.models.user import User, UserProfile
 from app.models.provider import Provider, ServiceProvider
 from app.models.service_view_unlock import ServiceViewUnlock
 from app.models.service_view_event import ServiceViewEvent
-from app.models.service_category import ServiceCategory
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +158,12 @@ async def _build_clients(
             up.full_name,
             up.avatar,
             up.phone,
-            sc.name AS service_name
+            s.name AS service_name
         FROM service_view_events sve
         JOIN users u ON u.id = sve.viewer_user_id
         LEFT JOIN user_profiles up ON up.user_id = sve.viewer_user_id
         LEFT JOIN service_providers sp ON sp.id = sve.service_provider_id
-        LEFT JOIN service_categories sc ON sc.id = sp.service_id
+        LEFT JOIN services s ON s.id = sp.service_id
         WHERE sve.provider_id = :provider_id
           AND sve.viewer_user_id IS NOT NULL
           AND sve.viewed_at >= :cutoff

@@ -703,7 +703,7 @@ async def get_provider_detailed(
         from app.models.provider import ServiceProvider
         services_result = await db.execute(
             select(ServiceProvider)
-            .options(selectinload(ServiceProvider.service_category))
+            .options(selectinload(ServiceProvider.service))
             .where(ServiceProvider.provider_id == provider_id)
         )
         services = services_result.scalars().all()
@@ -1433,7 +1433,7 @@ async def get_provider_service(
         # 1. Obtener el servicio — service_id es el PK de service_providers (ServiceProvider.id)
         result = await db.execute(
             select(ServiceProvider)
-            .options(selectinload(ServiceProvider.service_category))
+            .options(selectinload(ServiceProvider.service))
             .where(
                 ServiceProvider.id == service_id,
                 ServiceProvider.provider_id == provider_id
@@ -1556,7 +1556,7 @@ async def get_provider_services(
     # FIXED: Use eager loading to avoid lazy loading issues
     result = await db.execute(
         select(ServiceProvider)
-        .options(selectinload(ServiceProvider.service_category))
+        .options(selectinload(ServiceProvider.service))
         .where(ServiceProvider.provider_id == provider_id)
     )
     services = result.scalars().all()
@@ -1581,7 +1581,7 @@ async def update_service_provider(
 
         result = await db.execute(
             select(ServiceProvider)
-            .options(selectinload(ServiceProvider.service_category))
+            .options(selectinload(ServiceProvider.service))
             .where(
                 ServiceProvider.id == service_id,
                 ServiceProvider.provider_id == provider_id
@@ -1790,7 +1790,7 @@ async def get_provider_services_by_user_id(
     # FIXED: Use eager loading
     result = await db.execute(
         select(ServiceProvider)
-        .options(selectinload(ServiceProvider.service_category))
+        .options(selectinload(ServiceProvider.service))
         .where(ServiceProvider.provider_id == provider.id)
     )
     services = result.scalars().all()
@@ -1918,7 +1918,7 @@ async def get_provider_avatar(
 # ─── Búsqueda por texto libre ──────────────────────────────────────────────
 
 from sqlalchemy import or_, and_
-from app.models.service_category import ServiceCategory
+from app.models.service import Service
 
 
 @router.get("/text-search", response_model=List[ServiceProviderResponse])
@@ -1941,7 +1941,7 @@ async def text_search_providers(
     stmt = (
         select(ServiceProvider)
         .join(Provider, ServiceProvider.provider_id == Provider.id)
-        .outerjoin(ServiceCategory, ServiceProvider.service_id == ServiceCategory.id)
+        .outerjoin(Service, ServiceProvider.service_id == Service.id)
         .where(
             and_(
                 ServiceProvider.validation_status == "approved",
@@ -1950,13 +1950,13 @@ async def text_search_providers(
                     ServiceProvider.business_name.ilike(search_term),
                     ServiceProvider.description.ilike(search_term),
                     Provider.full_name.ilike(search_term),
-                    ServiceCategory.name.ilike(search_term),
+                    Service.name.ilike(search_term),
                 ),
             )
         )
         .options(
             selectinload(ServiceProvider.provider),
-            selectinload(ServiceProvider.service_category),
+            selectinload(ServiceProvider.service),
         )
         .offset(offset)
         .limit(limit)

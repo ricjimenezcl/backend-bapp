@@ -24,7 +24,6 @@ from app.models.booking import (
 from app.models.review import Review
 from app.models.user import User
 from app.models.provider import Provider
-from app.models.service_category import ServiceCategory
 from app.schemas.booking import (
     CreateBookingRequest, ConfirmBookingRequest, CancelBookingRequest,
     BookingResponse, BookingDetailResponse, CheckAvailabilityResponse,

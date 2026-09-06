@@ -17,8 +17,9 @@ class ServiceCategory(Base):
     created_at = Column(DateTime, default=func.now())
 
     # Relationships
+    # NOTA: ya no existe back-reference a ServiceProvider (que ahora apunta a Service,
+    # tabla "services", vía la FK real service_providers_service_id_fkey).
     main_category = relationship("MainCategory", back_populates="service_categories")
-    service_providers = relationship("ServiceProvider", back_populates="service_category")
 
 class MainCategory(Base):
     __tablename__ = "main_categories"

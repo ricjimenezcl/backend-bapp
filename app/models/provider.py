@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 from enum import Enum as PyEnum
+from types import SimpleNamespace
 try:
     from geoalchemy2 import Geometry as GeoGeometry
     _GEOALCHEMY2_AVAILABLE = True
@@ -51,7 +52,8 @@ class ServiceProvider(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     provider_id = Column(Integer, ForeignKey("providers.id"), nullable=False)
-    service_id = Column(Integer, ForeignKey("service_categories.id"), nullable=False)
+    # FK real confirmada en producción (constraint service_providers_service_id_fkey): services.id
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
     business_name = Column(String(255), nullable=False)
     description = Column(Text)
     address = Column(String(500), nullable=False)
@@ -76,8 +78,35 @@ class ServiceProvider(Base):
 
     # Relationships - FIXED: Use lazy='joined' for eager loading
     provider = relationship("Provider", back_populates="service_providers", lazy='joined')
-    service_category = relationship("ServiceCategory", back_populates="service_providers", lazy='joined')
+    # Nueva taxonomía: apunta al modelo Service (tabla services), no a ServiceCategory (legacy)
+    service = relationship("Service", back_populates="service_providers", lazy='joined')
     bookings = relationship("Booking", back_populates="service_provider", cascade="all, delete-orphan")
+
+    @property
+    def service_category(self):
+        """Compatibilidad hacia atrás: expone el servicio (nueva taxonomía:
+        services + subcategories) con el mismo shape que antes exponía
+        ServiceCategory, para no romper el contrato de ServiceCategoryResponse
+        consumido por el frontend (web y mobile).
+
+        Requiere 'service' y 'service.subcategory' cargados vía lazy='joined'
+        (configurado por defecto en ambos modelos) para evitar lazy-load
+        síncrono en contexto async.
+        """
+        svc = self.service
+        if svc is None:
+            return None
+        subcat = getattr(svc, "subcategory", None)
+        return SimpleNamespace(
+            id=svc.id,
+            name=svc.name,
+            description=svc.description,
+            icon=svc.icon,
+            parent_category=subcat.name if subcat else None,
+            is_active=True,
+            main_category_id=subcat.main_category_id if subcat else None,
+            created_at=svc.created_at,
+        )
 
 
 class ProviderWorkingHours(Base):
