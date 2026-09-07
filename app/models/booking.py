@@ -94,7 +94,9 @@ class Booking(Base):
     # Relaciones
     client_id = Column(Integer, ForeignKey(USERS_ID_FK, ondelete=CASCADE_OPTION), nullable=False)
     provider_id = Column(Integer, ForeignKey("providers.id", ondelete=CASCADE_OPTION), nullable=False)  # provider_id = providers.id
-    service_id = Column(Integer, ForeignKey("service_categories.id", ondelete=CASCADE_OPTION), nullable=True)  # service_id = service_categories.id
+    # FK real confirmada en producción (constraint bookings_service_id_fkey): services.id
+    # (antes apuntaba a service_categories.id; migrado junto con migrations/021_fix_bookings_service_id_fkey.sql)
+    service_id = Column(Integer, ForeignKey("services.id", ondelete=CASCADE_OPTION), nullable=True)
     service_provider_id = Column(Integer, ForeignKey("service_providers.id"), nullable=True, index=True)
     
     # Información de la reserva (compatibilidad con columnas existentes)
@@ -125,7 +127,7 @@ class Booking(Base):
     # Relaciones con otros modelos
     client = relationship("User", foreign_keys=[client_id], back_populates="bookings_as_client")
     provider = relationship("Provider", foreign_keys=[provider_id], back_populates="bookings")
-    service_category_rel = relationship("ServiceCategory", backref="bookings")
+    service = relationship("Service")  # nueva taxonomía: services (antes ServiceCategory, sin uso real)
     service_provider = relationship("ServiceProvider", back_populates="bookings")
     payments = relationship("Payment", back_populates="booking", cascade=ALL_DELETE_ORPHAN)
     reviews = relationship("Review", back_populates="booking", cascade=ALL_DELETE_ORPHAN)
