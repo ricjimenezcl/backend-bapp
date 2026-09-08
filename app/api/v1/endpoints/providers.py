@@ -2163,8 +2163,8 @@ async def get_available_slots(
 ):
     """Devuelve los slots de 60 min disponibles para una fecha concreta.
 
-    Un slot está bloqueado si existe un Booking (PENDING o CONFIRMED) del proveedor
-    en esa misma fecha y hora.
+    Un slot está bloqueado si existe un Booking (PENDING o APPROVED, o los estados
+    legacy CONFIRMED/IN_PROGRESS) del proveedor en esa misma fecha y hora.
 
     - provider_id: providers.id
     - service_id:  service_providers.id
@@ -2209,12 +2209,13 @@ async def get_available_slots(
         slots_times.append(cursor.strftime("%H:%M"))
         cursor += timedelta(hours=1)
 
-    # Obtener bookings existentes (PENDING o CONFIRMED) del proveedor en esa fecha
+    # Obtener bookings existentes (activos: pendientes o aprobados) del proveedor en esa fecha.
+    # Incluye estados legacy (CONFIRMED/IN_PROGRESS) por compatibilidad con datos históricos.
     booked_result = await db.execute(
         select(Booking.scheduled_time).where(
             Booking.provider_id == provider_id,
             Booking.scheduled_date == target_date,
-            Booking.status.in_(["PENDING", "CONFIRMED"]),
+            Booking.status.in_(["PENDING", "APPROVED", "CONFIRMED", "IN_PROGRESS"]),
         )
     )
     booked_times = {
