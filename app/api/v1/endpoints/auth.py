@@ -773,7 +773,7 @@ async def send_verification_email(
     if user and not user.email_verified:
         token = secrets.token_urlsafe(32)
         user.email_verification_token = token
-        user.email_verification_expiration = datetime.now() + timedelta(hours=24)
+        user.email_verification_expiration = datetime.utcnow() + timedelta(hours=24)
         await db.commit()
 
         source = _normalize_registration_source(body.source)
@@ -796,20 +796,31 @@ async def verify_email(
     token: str,
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Verifica el email del usuario usando el token recibido por correo."""
+    """
+    Verifica el email del usuario usando el token recibido por correo.
+
+    Idempotente: si el correo ya quedó marcado como verificado con este mismo
+    token (por ejemplo porque un escáner de seguridad del cliente de correo
+    -Outlook Safe Links, Gmail, WhatsApp, etc.- pre-abrió el enlace antes de
+    que el usuario lo abriera manualmente), se responde con éxito en vez de
+    "token inválido", evitando que el usuario quede en un loop de
+    "debes verificar tu correo".
+    """
     result = await db.execute(
         select(User).where(User.email_verification_token == token)
     )
     user = result.scalar_one_or_none()
 
-    if not user or not user.email_verification_expiration:
+    if not user:
         raise HTTPException(status_code=400, detail="Token inválido o expirado")
 
-    if user.email_verification_expiration < datetime.now():
+    if user.email_verified:
+        return {"message": "Correo verificado correctamente. Ya puedes iniciar sesión."}
+
+    if not user.email_verification_expiration or user.email_verification_expiration < datetime.utcnow():
         raise HTTPException(status_code=400, detail="El enlace de verificación ha expirado. Solicita uno nuevo.")
 
     user.email_verified = True
-    user.email_verification_token = None
     user.email_verification_expiration = None
     await db.commit()
 
