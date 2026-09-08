@@ -169,21 +169,9 @@ async def create_booking(
     new_booking_id = int(booking_response.id if hasattr(booking_response, 'id') else booking_response.get('id', 0))
     provider_id_val = int(booking_response.provider_id if hasattr(booking_response, 'provider_id') else booking_response.get('provider_id', 0))
 
-    # Emit event (non-blocking)
-    try:
-        from app.services.event_dispatcher import get_dispatcher, EventType
-        dispatcher = get_dispatcher()
-        await dispatcher.emit(EventType.BOOKING_CREATED, {
-            "booking_id": new_booking_id,
-            "client_id": current_user.id,
-            "provider_id": provider_id_val,
-            "service_name": booking_in.service_category or "GENERAL",
-            "scheduled_date": str(booking_in.scheduled_date) if booking_in.scheduled_date else "Not specified",
-            "price": float(booking_in.total_price) if booking_in.total_price else 0,
-            "description": booking_in.description,
-        })
-    except Exception as e:
-        logger.error(f"⚠️ Error emitting booking created event: {str(e)}")
+    # Nota: las notificaciones (email, in-app y WebSocket para cliente y proveedor)
+    # ya se disparan dentro de BookingService.create_booking vía NotificationDispatcher.
+    # No re-emitir EventType.BOOKING_CREATED aquí para evitar emails/duplicados.
 
     # Publish to Redis pub/sub
     try:

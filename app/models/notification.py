@@ -16,6 +16,7 @@ class NotificationType(str, PyEnum):
     """Notification type enumeration"""
     MESSAGE = "message"
     BOOKING_RECEIVED = "booking_received"
+    BOOKING_REQUEST_SENT = "booking_request_sent"
     BOOKING_CONFIRMED = "booking_confirmed"
     BOOKING_REJECTED = "booking_rejected"
     BOOKING_REMINDER_24H = "booking_reminder_24h"

@@ -121,7 +121,8 @@ class BookingService:
             result = await self.db.execute(
                 select(Provider).where(Provider.id == request.provider_id)
             )
-            if not result.scalar_one_or_none():
+            provider_profile = result.scalar_one_or_none()
+            if not provider_profile:
                 raise ValueError("Proveedor no encontrado")
 
             # Crear reserva
@@ -169,21 +170,26 @@ class BookingService:
                     ),
                 ))
 
-            # Disparar notificaciones en-memoria (EmailService + BD)
-            asyncio.create_task(get_dispatcher().emit(
-                NotifEventType.BOOKING_CREATED,
-                {
-                    "booking_id": str(booking.id),
-                    "client_id": client_id,
-                    "provider_id": request.provider_id,
-                    "service_name": request.service_category or "Servicio",
-                    "scheduled_date": (
-                        request.scheduled_date.isoformat()
-                        if request.scheduled_date else "No especificada"
-                    ),
-                    "price": float(request.total_price or 0),
-                },
-            ))
+            # Disparar notificaciones de creación de reserva: email + in-app + WS
+            # para AMBAS partes (cliente y proveedor), y SMS/WhatsApp al proveedor.
+            try:
+                provider_user_r = await self.db.execute(
+                    select(User).where(User.id == provider_profile.user_id)
+                )
+                provider_user = provider_user_r.scalar_one_or_none()
+                if provider_user:
+                    from app.services.notification_dispatcher import NotificationDispatcher
+                    nd = NotificationDispatcher(self.db)
+                    asyncio.create_task(
+                        nd.dispatch_booking_created(booking, provider_user, client)
+                    )
+                else:
+                    logger.warning(
+                        f"[BOOKING] No se encontró usuario para provider_id={provider_profile.id}, "
+                        "no se enviaron notificaciones de creación"
+                    )
+            except Exception as e:
+                logger.error(f"[BOOKING] Error dispatching creation notifications: {e}")
 
             return self._booking_to_response(booking)
 

@@ -47,7 +47,8 @@ class NotificationDispatcher:
     ) -> dict:
         """
         Dispatch notifications when booking is created
-        Sends to: Provider (SMS + WhatsApp + In-app)
+        Sends to: Provider (SMS + WhatsApp + In-app + Email) y Cliente (In-app + Email)
+        Ambos reciben notificación in-app + email informando que existe la solicitud.
         
         Args:
             booking: Booking object
@@ -61,12 +62,14 @@ class NotificationDispatcher:
         
         result = {
             "in_app": False,
+            "in_app_client": False,
             "sms": False,
             "whatsapp": False,
             "email": False
         }
 
-        # 1. In-app notification (aislada para que no bloquee el resto)
+        # 1. In-app notification para el PROVEEDOR (aislada para que no bloquee el resto)
+        provider_notification_id = None
         try:
             notification = await self.notification_service.create_booking_notification(
                 user_id=provider.id,
@@ -75,9 +78,25 @@ class NotificationDispatcher:
                 message=f"Nueva solicitud de {client.full_name or client.email}"
             )
             result["in_app"] = True
+            provider_notification_id = notification.id
             logger.info(f"✅ In-app notification created - ID: {notification.id}")
         except Exception as e:
             logger.warning(f"⚠️ In-app notification failed: {str(e)}")
+
+        # 1b. In-app notification para el CLIENTE confirmando que su solicitud fue enviada
+        client_notification_id = None
+        try:
+            client_notification = await self.notification_service.create_booking_notification(
+                user_id=client.id,
+                notification_type=NotificationType.BOOKING_REQUEST_SENT,
+                booking_id=booking.id,
+                message=f"Tu solicitud fue enviada a {provider.full_name or provider.email}. Te avisaremos cuando la acepte."
+            )
+            result["in_app_client"] = True
+            client_notification_id = client_notification.id
+            logger.info(f"✅ In-app notification (client) created - ID: {client_notification.id}")
+        except Exception as e:
+            logger.warning(f"⚠️ In-app notification (client) failed: {str(e)}")
 
         # 2. SMS
         try:
@@ -131,21 +150,39 @@ class NotificationDispatcher:
         except Exception as e:
             logger.error(f"❌ Email dispatch failed: {str(e)}")
 
-        # 5. WebSocket broadcast
+        # 5. WebSocket broadcast al proveedor
         try:
             await self._broadcast_notification_via_websocket(
                 user_id=provider.id,
-                notification_type="booking_created",
+                notification_type="booking_received",
                 title="Nueva Solicitud de Servicio",
                 message=f"Solicitud de {client.full_name or client.email}",
                 data={
                     "booking_id": booking.id,
                     "client_id": client.id,
                     "client_name": client.full_name or client.email
-                }
+                },
+                notification_id=provider_notification_id,
             )
         except Exception as e:
             logger.warning(f"⚠️ WebSocket broadcast failed: {str(e)}")
+
+        # 6. WebSocket broadcast al cliente (confirmando envío de la solicitud)
+        try:
+            await self._broadcast_notification_via_websocket(
+                user_id=client.id,
+                notification_type="booking_request_sent",
+                title="Solicitud Enviada",
+                message=f"Tu solicitud fue enviada a {provider.full_name or provider.email}",
+                data={
+                    "booking_id": booking.id,
+                    "provider_id": provider.id,
+                    "provider_name": provider.full_name or provider.email
+                },
+                notification_id=client_notification_id,
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ WebSocket broadcast (client) failed: {str(e)}")
 
         logger.info(f"📊 Notification dispatch summary: {result}")
         return result
@@ -419,7 +456,8 @@ class NotificationDispatcher:
         notification_type: str,
         title: str,
         message: str,
-        data: dict = None
+        data: dict = None,
+        notification_id: int = None,
     ):
         """
         Broadcast notification to user via WebSocket
@@ -430,17 +468,23 @@ class NotificationDispatcher:
             title: Notification title
             message: Notification message
             data: Additional data to send
+            notification_id: ID of the persisted in-app notification (if any)
         """
         try:
+            data = data or {}
+            related_entity_id = data.get("booking_id") or data.get("conversation_id")
             ws_message = {
-                "type": "notification",
-                "notification_type": notification_type,
-                "title": title,
-                "message": message,
-                "data": data or {},
-                "timestamp": asyncio.get_event_loop().time()
+                **connection_manager.format_notification(
+                    notification_id=notification_id,
+                    notification_type=notification_type,
+                    title=title,
+                    content=message,
+                    related_entity_id=related_entity_id,
+                ),
+                "channel": "notification",
+                "data": data,
             }
-            
+
             await connection_manager.broadcast_to_user(user_id, ws_message)
             logger.info(f"📡 WebSocket notification sent to user {user_id}")
         except Exception as e:

@@ -70,50 +70,9 @@ async def create_booking(
             detail="Error creando la reserva"
         )
 
-    # Enviar emails al cliente y proveedor (non-blocking)
-    try:
-        from sqlalchemy.future import select as _select
-        from app.models.provider import Provider as _Provider
-        from app.models.user import User as _User
-
-        provider_id_val = int(booking_response.provider_id)
-        booking_id_val = int(booking_response.id)
-
-        # providers.id → providers.user_id → users.email
-        prov_row = await booking_service.db.execute(_select(_Provider).where(_Provider.id == provider_id_val))
-        prov_obj = prov_row.scalar_one_or_none()
-        if prov_obj:
-            user_row = await booking_service.db.execute(_select(_User).where(_User.id == prov_obj.user_id))
-            provider_user = user_row.scalar_one_or_none()
-            if provider_user:
-                booking_data = {
-                    "id": booking_id_val,
-                    "scheduled_date": str(booking_response.scheduled_date) if booking_response.scheduled_date else None,
-                    "scheduled_time": str(booking_response.scheduled_time) if booking_response.scheduled_time else None,
-                    "service_category": getattr(booking_response, "service_category", "GENERAL"),
-                    "location_address": getattr(booking_response, "location_address", ""),
-                    "description": getattr(booking_response, "description", None),
-                    "total_price": str(booking_response.total_price) if booking_response.total_price else "0",
-                }
-                provider_data = {
-                    "id": provider_user.id,
-                    "email": provider_user.email,
-                    "full_name": prov_obj.full_name,
-                    "phone_number": getattr(prov_obj, "phone", None),
-                }
-                client_profile = getattr(current_user, "client_profile", None)
-                client_data = {
-                    "id": current_user.id,
-                    "email": current_user.email,
-                    "full_name": client_profile.full_name if client_profile else current_user.email,
-                }
-                from app.services.notification_helpers import create_task_notify_booking_created_data
-                create_task_notify_booking_created_data(booking_data, provider_data, client_data)
-                logger.info(f"📢 Email task creado para booking {booking_id_val} → proveedor {provider_user.email}, cliente {current_user.email}")
-        else:
-            logger.warning(f"⚠️ Provider id={provider_id_val} no encontrado en tabla providers")
-    except Exception as e:
-        logger.error(f"⚠️ Error enviando emails de reserva: {str(e)}")
+    # Nota: las notificaciones (email + in-app + WebSocket para cliente y proveedor,
+    # SMS/WhatsApp al proveedor) ya se disparan dentro de BookingService.create_booking
+    # vía NotificationDispatcher. No duplicar el envío de emails aquí.
 
     return booking_response
 

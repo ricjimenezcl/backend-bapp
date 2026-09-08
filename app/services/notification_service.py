@@ -74,6 +74,8 @@ class NotificationService:
     ) -> Notification:
         """Create a notification for booking events"""
         type_messages = {
+            NotificationType.BOOKING_RECEIVED: "Nueva Solicitud de Reserva",
+            NotificationType.BOOKING_REQUEST_SENT: "Solicitud Enviada",
             NotificationType.BOOKING_CONFIRMED: "Reserva Confirmada",
             NotificationType.BOOKING_REJECTED: "Reserva Rechazada",
             NotificationType.BOOKING_REMINDER_24H: "Reserva en menos de 24 horas",
