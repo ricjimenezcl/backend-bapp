@@ -72,9 +72,16 @@ class OAuthService:
                 detail="Token de Google inválido o expirado",
             )
 
-        # Verificar audience (aud debe ser nuestro client_id)
+        # Verificar audience (aud debe ser uno de nuestros client_id).
+        # OAUTH_GOOGLE_CLIENT_ID admite uno o varios IDs separados por coma
+        # (ej: client_id de desarrollo + client_id de producción), ya que
+        # web y mobile en distintos entornos pueden usar client IDs distintos
+        # contra el mismo backend.
         aud = data.get("aud", "")
-        if settings.OAUTH_GOOGLE_CLIENT_ID and settings.OAUTH_GOOGLE_CLIENT_ID not in aud:
+        allowed_client_ids = {
+            cid.strip() for cid in (settings.OAUTH_GOOGLE_CLIENT_ID or "").split(",") if cid.strip()
+        }
+        if allowed_client_ids and aud not in allowed_client_ids:
             logger.warning(f"[OAUTH] Google token audience incorrecto: {aud}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
