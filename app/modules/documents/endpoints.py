@@ -48,12 +48,30 @@ def _normalize_ocr_text(text: str) -> str:
 
 
 def _run_checksum_is_valid(run_digits: str) -> bool:
-    """Valida el dígito verificador del RUN chileno."""
+    """Valida el dígito verificador del RUN chileno.
+
+    El RUN completo usa 8 dígitos base + dígito verificador, por lo que la
+    longitud real del texto numérico es 9. El código anterior validaba 8 y
+    rechazaba formatos válidos como 14.483.484-4.
+    """
     digits = re.sub(r"\D", "", run_digits or "")
-    if len(digits) != 8:
+    if len(digits) not in (8, 9):
         return False
 
-    numbers = [int(d) for d in digits[:-1]]
+    # Si viene con el dígito verificador incluido, usamos los 8 primeros para
+    # calcular el DV; si viene sin él, no podemos validar y se deja como
+    # fallback de formato.
+    if len(digits) == 9:
+        base_digits = digits[:-1]
+        verifier_digit = digits[-1]
+    else:
+        base_digits = digits
+        verifier_digit = None
+
+    if len(base_digits) != 8:
+        return False
+
+    numbers = [int(d) for d in base_digits]
     weights = [3, 2, 7, 6, 5, 4, 3, 2]
     total = sum(n * w for n, w in zip(numbers, weights))
     remainder = total % 11
@@ -63,7 +81,10 @@ def _run_checksum_is_valid(run_digits: str) -> bool:
     elif expected == 10:
         expected = 1
 
-    return int(digits[-1]) == expected
+    if verifier_digit is None:
+        return True
+
+    return int(verifier_digit) == expected
 
 
 def _extract_run_from_text(text: str) -> Optional[str]:
@@ -71,9 +92,9 @@ def _extract_run_from_text(text: str) -> Optional[str]:
     patterns = [
         r"(?:RUN|RUT)[^0-9K]{0,15}([0-9]{1,2}[\s.]*[0-9]{3}[\s.]*[0-9]{3}[\s.-]*[0-9K])",
         r"([0-9]{1,2}[\s.]*[0-9]{3}[\s.]*[0-9]{3}[\s.-]*[0-9K])",
-        r"(?:RUN|RUT)[^0-9K]{0,15}([0-9]{7,8}[K])",
-        r"([0-9]{7,8}[K])",
-        r"([0-9]{7,8})",
+        r"(?:RUN|RUT)[^0-9K]{0,15}([0-9]{7,9}[K])",
+        r"([0-9]{7,9}[K])",
+        r"([0-9]{7,9})",
     ]
 
     for pattern in patterns:
@@ -86,16 +107,19 @@ def _extract_run_from_text(text: str) -> Optional[str]:
             continue
         if compact.endswith("K"):
             compact = compact[:-1] + "K"
-        if len(compact.replace("K", "")) == 8 and _run_checksum_is_valid(compact):
+
+        digits_without_verifier = compact.replace("K", "")
+        if len(digits_without_verifier) in (8, 9) and _run_checksum_is_valid(compact):
             return candidate.strip()
-        if len(compact.replace("K", "")) == 8:
+        if len(digits_without_verifier) in (8, 9):
             return candidate.strip()
-        if re.fullmatch(r"\d{7,8}", compact):
+        if re.fullmatch(r"\d{7,9}", compact):
             return candidate.strip()
 
-    for candidate in re.findall(r"\d{7,8}[K]?", normalized):
+    for candidate in re.findall(r"\d{7,9}[K]?", normalized):
         compact = candidate.upper()
-        if len(compact.replace("K", "")) >= 7 and _run_checksum_is_valid(compact):
+        digits_without_verifier = compact.replace("K", "")
+        if len(digits_without_verifier) >= 7 and _run_checksum_is_valid(compact):
             return compact
 
     return None
