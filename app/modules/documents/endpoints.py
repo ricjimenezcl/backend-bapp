@@ -3,12 +3,17 @@ Document Upload and Verification Endpoints
 """
 
 import logging
+import re
 import time
 import uuid
+from typing import Optional, Tuple
+
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
+from app.core.config import settings
 from app.core.database import get_db_async
 from app.dependencies import get_current_user, get_current_provider
 from app.models import User, Provider, ProviderVerification
@@ -28,6 +33,104 @@ from sqlalchemy.future import select
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def _normalize_ocr_text(text: str) -> str:
+    return (
+        (text or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\u00a0", " ")
+        .replace("-\n", "")
+        .upper()
+        .strip()
+    )
+
+
+def _run_checksum_is_valid(run_digits: str) -> bool:
+    """Valida el dígito verificador del RUN chileno."""
+    digits = re.sub(r"\D", "", run_digits or "")
+    if len(digits) != 8:
+        return False
+
+    numbers = [int(d) for d in digits[:-1]]
+    weights = [3, 2, 7, 6, 5, 4, 3, 2]
+    total = sum(n * w for n, w in zip(numbers, weights))
+    remainder = total % 11
+    expected = 11 - remainder
+    if expected == 11:
+        expected = 0
+    elif expected == 10:
+        expected = 1
+
+    return int(digits[-1]) == expected
+
+
+def _extract_run_from_text(text: str) -> Optional[str]:
+    normalized = _normalize_ocr_text(text)
+    patterns = [
+        r"(?:RUN|RUT)[^0-9K]{0,15}([0-9]{1,2}[\s.]*[0-9]{3}[\s.]*[0-9]{3}[\s.-]*[0-9K])",
+        r"([0-9]{1,2}[\s.]*[0-9]{3}[\s.]*[0-9]{3}[\s.-]*[0-9K])",
+        r"(?:RUN|RUT)[^0-9K]{0,15}([0-9]{7,8}[K])",
+        r"([0-9]{7,8}[K])",
+        r"([0-9]{7,8})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        candidate = match.group(1)
+        compact = re.sub(r"[^0-9K]", "", candidate).upper()
+        if len(compact) < 7:
+            continue
+        if compact.endswith("K"):
+            compact = compact[:-1] + "K"
+        if len(compact.replace("K", "")) == 8 and _run_checksum_is_valid(compact):
+            return candidate.strip()
+        if len(compact.replace("K", "")) == 8:
+            return candidate.strip()
+        if re.fullmatch(r"\d{7,8}", compact):
+            return candidate.strip()
+
+    for candidate in re.findall(r"\d{7,8}[K]?", normalized):
+        compact = candidate.upper()
+        if len(compact.replace("K", "")) >= 7 and _run_checksum_is_valid(compact):
+            return compact
+
+    return None
+
+
+async def _extract_run_with_textract(file_bytes: bytes) -> Tuple[Optional[str], str]:
+    """Extrae texto OCR de una imagen usando AWS Textract y luego localiza el RUN."""
+    if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+        raise RuntimeError("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY no configuradas")
+
+    try:
+        session = boto3.Session(
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            aws_session_token=settings.AWS_SESSION_TOKEN,
+            region_name=settings.AWS_REGION,
+        )
+        client = session.client("textract", region_name=settings.AWS_REGION)
+        response = client.detect_document_text(Document={"Bytes": file_bytes})
+
+        lines = []
+        for block in response.get("Blocks", []):
+            if block.get("BlockType") == "LINE":
+                text = (block.get("Text") or "").strip()
+                if text:
+                    lines.append(text)
+
+        full_text = "\n".join(lines)
+        run = _extract_run_from_text(full_text)
+        logger.info("[TEXTRACT] RUN detectado: %s", run)
+        logger.info("[TEXTRACT] Texto extraído: %s", full_text[:500])
+        return run, full_text
+    except (BotoCoreError, ClientError) as exc:
+        logger.error("[TEXTRACT] Error de AWS Textract: %s", exc, exc_info=True)
+        raise RuntimeError(f"AWS Textract failed: {exc}") from exc
 
 
 # ============================================================
@@ -111,6 +214,70 @@ async def generate_upload_signature(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate upload signature"
         )
+
+
+@router.post(
+    "/extract-run",
+    summary="Extract Chilean RUN from uploaded ID front image using AWS Textract"
+)
+async def extract_run(
+    file: UploadFile = File(...),
+    document_type: str = Form("IDENTITY_DOCUMENT"),
+    side: str = Form("front"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Extracts the RUN from the uploaded front ID image.
+
+    The frontend sends the ID file and expects a result like:
+      { "run": "14.483.484-4", "frontRun": "14.483.484-4", "text": "..." }
+    """
+    del db
+    try:
+        logger.info(
+            "[EXTRACT_RUN] Request: user_id=%s, document_type=%s, side=%s, filename=%s",
+            current_user.id,
+            document_type,
+            side,
+            file.filename,
+        )
+
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Archivo vacío")
+
+        run, extracted_text = await _extract_run_with_textract(file_bytes)
+        if not run:
+            logger.warning("[EXTRACT_RUN] No se detectó RUN con Textract. Texto: %s", extracted_text[:1000])
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pudo detectar el RUN en la cédula.",
+            )
+
+        result = {
+            "run": run,
+            "frontRun": run,
+            "text": extracted_text,
+            "document_type": document_type,
+            "side": side,
+        }
+
+        logger.info("[EXTRACT_RUN] RUN extraído con éxito: %s", run)
+        return result
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        logger.warning("[EXTRACT_RUN] Textract no disponible: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AWS Textract no disponible en este momento.",
+        ) from exc
+    except Exception as exc:
+        logger.error("[EXTRACT_RUN] Error inesperado: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"No se pudo procesar el documento: {exc}",
+        ) from exc
 
 
 @router.post(

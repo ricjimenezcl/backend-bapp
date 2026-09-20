@@ -89,9 +89,10 @@ class Settings(BaseSettings):
     # de vencimiento de planes). Debe configurarse en producción vía env var.
     CRON_SECRET: Optional[str] = Field(default=None)
 
-    # AWS Rekognition - Face verification
+    # AWS Rekognition / Textract
     AWS_ACCESS_KEY_ID: Optional[str] = Field(default=None)
     AWS_SECRET_ACCESS_KEY: Optional[str] = Field(default=None)
+    AWS_SESSION_TOKEN: Optional[str] = Field(default=None)
     AWS_REGION: str = Field(default="us-east-1")
     
     # Redis Infrastructure
