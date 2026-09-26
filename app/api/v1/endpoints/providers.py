@@ -1084,19 +1084,26 @@ async def create_service_provider(
                 detail="Debes completar y aprobar la verificación de identidad antes de agregar servicios. Por favor, sube tu selfie y documento de identidad en la sección de verificación."
             )
 
-        # 2.7 ── Contar servicios existentes del proveedor
-        # Los primeros 2 se crean con "approved" (gratuitos); del 3ro en
+        # 2.7 ── Verificar cupo gratuito histórico del proveedor
+        # Los primeros 2 servicios se crean con "approved" (gratuitos); del 3ro en
         # adelante se requiere un slot de pago activo (provider_service_slots).
-        count_result = await db.execute(
-            text("SELECT COUNT(*) FROM service_providers WHERE provider_id = :pid"),
+        # IMPORTANTE: se usa providers.free_services_used (contador persistente que
+        # solo sube) en vez de un COUNT(*) sobre service_providers, porque ese conteo
+        # se puede evadir eliminando un servicio y creando uno nuevo para "recuperar"
+        # el cupo gratuito. FOR UPDATE bloquea la fila del provider para que 2
+        # creaciones concurrentes no lean el mismo valor y ambas se cuenten como gratis.
+        free_used_result = await db.execute(
+            text("SELECT free_services_used FROM providers WHERE id = :pid FOR UPDATE"),
             {"pid": provider.id}
         )
-        service_count = count_result.scalar() or 0
+        free_services_used = free_used_result.scalar() or 0
 
         claimed_slot_id = None
         claimed_slot_expires_at = None
-        if service_count < 2:
+        consumes_free_slot = False
+        if free_services_used < 2:
             new_validation_status = "approved"
+            consumes_free_slot = True
         else:
             # Buscar un slot de pago activo, vigente y sin reclamar (o ya propio
             # del proveedor) para asignarlo a este nuevo servicio.
@@ -1165,6 +1172,14 @@ async def create_service_provider(
         row = insert_result.fetchone()
         new_service_id = row.id
         new_created_at = row.created_at
+
+        if consumes_free_slot:
+            # Persistir el consumo del cupo gratuito ANTES del commit: si esta
+            # transacción se revierte, el servicio no se crea y el cupo tampoco se gasta.
+            await db.execute(
+                text("UPDATE providers SET free_services_used = free_services_used + 1 WHERE id = :pid"),
+                {"pid": provider.id}
+            )
 
         if claimed_slot_id is not None:
             await db.execute(

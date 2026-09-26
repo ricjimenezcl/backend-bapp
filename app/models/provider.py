@@ -39,6 +39,11 @@ class Provider(Base):
     validation_status = Column(Enum(ValidationStatus, values_callable=lambda x: [e.value for e in x], name="validation_status", native_enum=False), default=ValidationStatus.PENDING)
     validation_notes = Column(Text, nullable=True)
 
+    # Contador persistente del cupo gratuito de servicios (máx. 2). Solo sube: no se
+    # decrementa al eliminar servicios, para que el beneficio gratuito no pueda
+    # reutilizarse eliminando y volviendo a crear un servicio (ver migración 025).
+    free_services_used = Column(SmallInteger, nullable=False, default=0, server_default="0")
+
     # Relationships
     user = relationship("User", back_populates="provider_profile")
     service_providers = relationship("ServiceProvider", back_populates="provider", cascade="all, delete-orphan")
