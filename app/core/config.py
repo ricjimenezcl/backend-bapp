@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     OAUTH_FB_CLIENT_SECRET: Optional[str] = Field(default=None)
     OAUTH_GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
     OAUTH_GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    # Bundle ID de la app iOS (aud del identity_token de Sign in with Apple).
+    # Admite varios valores separados por coma (ej: bundle id + Services ID web).
+    OAUTH_APPLE_CLIENT_ID: Optional[str] = Field(default="io.ionic.bappsearch")
     RISC_GOOGLE_CLIENT_IDS: List[str] = Field(default=[])
 
     # Entorno de ejecución — controla endpoints de testing y modo sandbox

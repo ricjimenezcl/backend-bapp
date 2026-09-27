@@ -590,6 +590,48 @@ async def facebook_oauth(
     _set_auth_cookies(response, payload["access_token"], payload.get("refresh_token"))
     return payload
 
+
+class AppleLoginRequest(BaseModel):
+    identity_token: str
+    role: str = "CLIENT"
+    full_name: Optional[str] = None
+    email_hint: Optional[EmailStr] = None
+
+
+@router.post("/oauth/apple")
+async def apple_oauth(
+    request: Request,
+    response: Response,
+    body: AppleLoginRequest,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Login / registro con Sign in with Apple.
+
+    El frontend obtiene el identity_token con el SDK nativo de Apple (solo iOS)
+    y lo envía aquí junto al nombre completo, ya que Apple solo lo entrega la
+    primera vez que el usuario autoriza. El backend valida la firma del token
+    contra las claves públicas de Apple (JWKS) y emite JWT propio.
+    """
+    try:
+        rl_key = f"rate:auth:oauth:apple:{request.client.host if request.client else 'unknown'}"
+        if not rate_limit(rl_key, 10, 60):
+            raise HTTPException(status_code=429, detail="Demasiadas solicitudes. Intenta en 1 minuto.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # fail-open
+
+    from app.services.oauth_service import OAuthService
+    oauth_service = OAuthService(db)
+    payload = await oauth_service.login_with_apple(
+        body.identity_token,
+        role=body.role,
+        full_name=body.full_name,
+        email_hint=body.email_hint,
+    )
+    _set_auth_cookies(response, payload["access_token"], payload.get("refresh_token"))
+    return payload
+
 class AcceptTermsRequest(BaseModel):
     email_opt_in: bool = False
 

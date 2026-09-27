@@ -19,6 +19,7 @@ from typing import Optional
 from datetime import datetime
 
 import aiohttp
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException, status
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_TOKEN_INFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 FACEBOOK_GRAPH_URL = "https://graph.facebook.com/me"
+APPLE_ISSUER = "https://appleid.apple.com"
+APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
 
 
 class OAuthService:
@@ -144,6 +147,97 @@ class OAuthService:
             )
 
         return data
+
+    # ─── Apple ────────────────────────────────────────────────────────────────
+
+    async def login_with_apple(
+        self,
+        identity_token: str,
+        role: str = "CLIENT",
+        full_name: Optional[str] = None,
+        email_hint: Optional[str] = None,
+    ) -> dict:
+        """Valida identity_token (JWT) de Apple y retorna JWT interno.
+
+        Apple solo entrega el nombre completo la primera vez que el usuario
+        autoriza (no viaja dentro del JWT), por eso el frontend lo reenvía
+        aparte junto al token.
+        """
+        claims = await self._validate_apple_token(identity_token)
+        normalized_hint = (email_hint or "").strip().lower() or None
+        email = claims.get("email") or normalized_hint
+        return await self._get_or_create_oauth_user(
+            oauth_provider="apple",
+            oauth_id=claims["sub"],
+            email=email,
+            full_name=full_name or "",
+            avatar_url=None,
+            role=role,
+        )
+
+    async def _validate_apple_token(self, identity_token: str) -> dict:
+        """Verifica la firma del identity_token contra las claves públicas (JWKS) de Apple."""
+        try:
+            unverified_header = jwt.get_unverified_header(identity_token)
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de Apple malformado",
+            )
+
+        jwk = await self._get_apple_jwk(unverified_header.get("kid"))
+        if not jwk:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No se encontró la clave pública de Apple para este token",
+            )
+
+        try:
+            claims = jwt.decode(
+                identity_token,
+                jwk,
+                algorithms=["RS256"],
+                issuer=APPLE_ISSUER,
+                options={"verify_aud": False},
+            )
+        except JWTError as e:
+            logger.warning(f"[OAUTH] Apple token inválido: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de Apple inválido o expirado",
+            )
+
+        # Verificar audience manualmente (aud debe ser uno de nuestros bundle/services id).
+        # OAUTH_APPLE_CLIENT_ID admite uno o varios valores separados por coma.
+        aud = claims.get("aud", "")
+        allowed_client_ids = {
+            cid.strip() for cid in (settings.OAUTH_APPLE_CLIENT_ID or "").split(",") if cid.strip()
+        }
+        if allowed_client_ids and aud not in allowed_client_ids:
+            logger.warning(f"[OAUTH] Apple token audience incorrecto: {aud}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de Apple no corresponde a esta aplicación",
+            )
+
+        if not claims.get("sub"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de Apple no contiene identificador de usuario",
+            )
+
+        return claims
+
+    async def _get_apple_jwk(self, kid: Optional[str]) -> Optional[dict]:
+        """Obtiene el JWK de Apple correspondiente al 'kid' del token (clave pública vigente)."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(APPLE_KEYS_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json()
+
+        for key in data.get("keys", []):
+            if key.get("kid") == kid:
+                return key
+        return None
 
     # ─── Lógica común: buscar/crear usuario ────────────────────────────────────
 
