@@ -12,6 +12,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.models.provider import Provider
 from app.models.provider_service_slot import ProviderServiceSlot
+from app.models.service_view_unlock import ServiceViewUnlock
 from app.schemas.monetization import (
     TransactionCreate,
     TransactionUpdate,
@@ -207,14 +208,48 @@ class TransactionService:
         if not user:
             return None
         
-        if product.sku == "premium_access_7days":
-            # Activate premium access
+        if product.sku in ("premium_access_7days", "client_unlock_30days"):
+            # Activate premium access (acceso cliente 7 o 30 días)
             user.has_premium = True
             user.premium_activated_at = activated_at
             user.premium_expires_at = expires_at
-            
-        elif product.sku == "service_publication_30days":
-            # Activate provider service slot
+
+        elif product.sku in ("provider_premium_monthly", "provider_premium_annual"):
+            # Premium Proveedor: activa el flag Y otorga hasta 7 servicios
+            # activos en total (2 gratis + 5 de Premium, slots 3-7), igual
+            # que el flujo Transbank (ver payments_transbank._apply_benefit).
+            user.has_premium = True
+            user.premium_activated_at = activated_at
+            user.premium_expires_at = expires_at
+
+            provider = db.query(Provider).filter(
+                Provider.user_id == user.id
+            ).first()
+
+            if provider:
+                for slot_number in range(3, 8):
+                    slot = db.query(ProviderServiceSlot).filter(
+                        and_(
+                            ProviderServiceSlot.provider_id == provider.id,
+                            ProviderServiceSlot.slot_number == slot_number
+                        )
+                    ).first()
+
+                    if not slot:
+                        slot = ProviderServiceSlot(
+                            provider_id=provider.id,
+                            slot_number=slot_number,
+                            is_free=False
+                        )
+                        db.add(slot)
+
+                    slot.transaction_id = transaction.id
+                    slot.activated_at = activated_at
+                    slot.expires_at = expires_at
+                    slot.is_active = True
+
+        elif product.sku in ("service_publication_30days", "provider_service_30days", "provider_service_1year"):
+            # Activate provider service slot (1 slot adicional)
             provider = db.query(Provider).filter(
                 Provider.user_id == user.id
             ).first()
@@ -256,7 +291,25 @@ class TransactionService:
                 slot.activated_at = activated_at
                 slot.expires_at = expires_at
                 slot.is_active = True
-        
+
+        elif product.sku in ("provider_leads_unlock_7days", "provider_leads_unlock_30days"):
+            # Desbloqueo de leads (clientes interesados) por el período pagado
+            provider = db.query(Provider).filter(
+                Provider.user_id == user.id
+            ).first()
+
+            if provider:
+                unlock = ServiceViewUnlock(
+                    provider_id=provider.id,
+                    payment_reference=f"MP-{transaction.id}",
+                    amount=Decimal(transaction.amount),
+                    currency=transaction.currency,
+                    status="active",
+                    unlocked_at=activated_at,
+                    expires_at=expires_at,
+                )
+                db.add(unlock)
+
         db.commit()
         db.refresh(transaction)
 

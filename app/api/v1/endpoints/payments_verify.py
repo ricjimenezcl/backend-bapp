@@ -548,6 +548,22 @@ async def create_mercadopago_preference(
     if not product:
         raise HTTPException(status_code=404, detail=f"Product '{product_sku}' not found")
 
+    # Acceso Cliente / Premium Proveedor son de vigencia única (no se acumulan
+    # ni se reemplazan): si ya hay acceso activo, se bloquea la recompra hasta
+    # que expire, evitando pagos duplicados por error o confusión de UI.
+    if (
+        product.target_role == "CLIENT"
+        or product.sku in ("provider_premium_monthly", "provider_premium_annual")
+    ) and current_user.is_premium_active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ya tienes acceso activo hasta "
+                f"{current_user.premium_expires_at.isoformat() if current_user.premium_expires_at else ''}. "
+                "Podrás comprar un nuevo período cuando expire."
+            ),
+        )
+
     try:
         sdk = mercadopago.SDK(settings.MERCADO_PAGO_ACCESS_TOKEN)
 

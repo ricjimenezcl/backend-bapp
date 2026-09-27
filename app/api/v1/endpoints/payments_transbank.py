@@ -69,6 +69,11 @@ PRODUCT_TYPE_CONFIG: Dict[str, Dict[str, Any]] = {
         "duration_days": 30,
         "skus": ["provider_premium_monthly"],
     },
+    "PROVIDER_PREMIUM_ANNUAL": {
+        "amount": 49990,
+        "duration_days": 365,
+        "skus": ["provider_premium_annual"],
+    },
 }
 
 
@@ -215,11 +220,24 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
     if not user:
         return
 
-    if product_type in ("CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30", "PROVIDER_PREMIUM_MONTHLY"):
+    if product_type in (
+        "CLIENT_UNLOCK_7",
+        "CLIENT_UNLOCK_30",
+        "PROVIDER_PREMIUM_MONTHLY",
+        "PROVIDER_PREMIUM_ANNUAL",
+    ):
         user.has_premium = True
         user.premium_activated_at = now
         user.premium_expires_at = expires_at
         tx.expires_at = expires_at
+
+        if product_type in ("PROVIDER_PREMIUM_MONTHLY", "PROVIDER_PREMIUM_ANNUAL"):
+            # Premium Proveedor otorga hasta 7 servicios activos en total
+            # (2 gratis + 5 de Premium, slots 3-7) sin necesidad de comprar
+            # cada slot por separado vía PROVIDER_SERVICE_30/YEAR.
+            provider = db.query(Provider).filter(Provider.user_id == user.id).first()
+            if provider:
+                _activate_premium_service_slots(db, provider, tx, now, expires_at)
 
     elif product_type in ("PROVIDER_LEADS_7", "PROVIDER_LEADS_30"):
         provider = db.query(Provider).filter(Provider.user_id == user.id).first()
@@ -273,6 +291,38 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
             slot.activated_at = now
             slot.expires_at = expires_at
             slot.is_active = True
+
+
+def _activate_premium_service_slots(
+    db: Session,
+    provider: Provider,
+    tx: Transaction,
+    now: datetime,
+    expires_at: datetime,
+) -> None:
+    """Crea o reactiva los slots 3 a 7 (5 servicios adicionales) para un
+    proveedor con Premium activo. Slots 1-2 son gratis y no se tocan aquí."""
+    for slot_number in range(3, 8):
+        slot = (
+            db.query(ProviderServiceSlot)
+            .filter(
+                ProviderServiceSlot.provider_id == provider.id,
+                ProviderServiceSlot.slot_number == slot_number,
+            )
+            .first()
+        )
+        if not slot:
+            slot = ProviderServiceSlot(
+                provider_id=provider.id,
+                slot_number=slot_number,
+                is_free=False,
+            )
+            db.add(slot)
+
+        slot.transaction_id = tx.id
+        slot.activated_at = now
+        slot.expires_at = expires_at
+        slot.is_active = True
 
 
 def _make_buy_order() -> str:
@@ -355,6 +405,24 @@ def create_transbank_transaction(
     cfg = PRODUCT_TYPE_CONFIG.get(body.product_type.value)
     if not cfg:
         raise HTTPException(status_code=400, detail="Unsupported product_type")
+
+    # Acceso Cliente / Premium Proveedor son de vigencia única (no se acumulan
+    # ni se reemplazan): si ya hay acceso activo, se bloquea la recompra hasta
+    # que expire, evitando pagos duplicados por error o confusión de UI.
+    if body.product_type.value in (
+        "CLIENT_UNLOCK_7",
+        "CLIENT_UNLOCK_30",
+        "PROVIDER_PREMIUM_MONTHLY",
+        "PROVIDER_PREMIUM_ANNUAL",
+    ) and current_user.is_premium_active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ya tienes acceso activo hasta "
+                f"{current_user.premium_expires_at.isoformat() if current_user.premium_expires_at else ''}. "
+                "Podrás comprar un nuevo período cuando expire."
+            ),
+        )
 
     product = _get_product_for_type(db, body.product_type.value)
     expected_amount = _expected_amount(body.product_type.value, product)

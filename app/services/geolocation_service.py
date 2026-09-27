@@ -60,6 +60,20 @@ _BASE_WHERE = """
       AND sp.is_available = true
 """
 
+# Boost simple de búsqueda: proveedores con Premium activo (flag + vigencia
+# real) aparecen primero, sin alterar el resto del algoritmo/orden por
+# distancia. Subquery aislada para no tocar _SELECT_COLS/_JOIN_CLAUSE
+# (compartidos con el mapeo de respuesta) ni el ORDER BY interno requerido
+# por DISTINCT ON.
+_PREMIUM_BOOST_ORDER = """
+    (
+        SELECT (u.has_premium AND u.premium_expires_at > NOW())
+        FROM providers p2
+        JOIN users u ON p2.user_id = u.id
+        WHERE p2.id = sub.provider_id
+    ) DESC NULLS LAST
+"""
+
 # ── Haversine (sin PostGIS) ───────────────────────────────────────────────────
 
 _HAVERSINE_DISTANCE = """
@@ -198,7 +212,7 @@ class GeolocationService:
         query = (
             f"SELECT * FROM ({inner}) AS sub"
             f" WHERE sub.distance < :radius_km"
-            f" ORDER BY sub.distance ASC LIMIT :limit OFFSET :skip"
+            f" ORDER BY {_PREMIUM_BOOST_ORDER}, sub.distance ASC LIMIT :limit OFFSET :skip"
         )
 
         return await self._execute_and_map(query, params)
@@ -252,7 +266,7 @@ class GeolocationService:
         # ORDER BY requerido por DISTINCT ON: mantiene el servicio más cercano por proveedor
         inner += " ORDER BY sp.provider_id, distance ASC"
 
-        query = f"SELECT * FROM ({inner}) AS sub ORDER BY sub.distance ASC LIMIT :limit OFFSET :skip"
+        query = f"SELECT * FROM ({inner}) AS sub ORDER BY {_PREMIUM_BOOST_ORDER}, sub.distance ASC LIMIT :limit OFFSET :skip"
 
         return await self._execute_and_map(query, params)
 

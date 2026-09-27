@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS products (
     price_clp DECIMAL(10, 2) NOT NULL,
     free_limit INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE NOT NULL,
-    metadata JSONB,
+    product_metadata JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -129,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_provider_service_slots_service_provider_id ON pro
 -- ============================================
 -- DATOS INICIALES: products
 -- ============================================
-INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, metadata) VALUES
+INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, product_metadata) VALUES
 (
     'premium_access_7days',
     'Acceso Premium 7 días',

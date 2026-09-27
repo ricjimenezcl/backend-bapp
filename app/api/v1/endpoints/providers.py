@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
-from sqlalchemy import or_, and_, update as sa_update, text
+from sqlalchemy import or_, and_, case, update as sa_update, text
 from typing import Any, List, Optional
 from datetime import datetime, timezone, timedelta
 import base64
@@ -1956,6 +1956,7 @@ async def text_search_providers(
     stmt = (
         select(ServiceProvider)
         .join(Provider, ServiceProvider.provider_id == Provider.id)
+        .join(User, Provider.user_id == User.id)
         .outerjoin(Service, ServiceProvider.service_id == Service.id)
         .where(
             and_(
@@ -1972,6 +1973,18 @@ async def text_search_providers(
         .options(
             selectinload(ServiceProvider.provider),
             selectinload(ServiceProvider.service),
+        )
+        # Boost simple: proveedores con Premium activo (flag + vigencia real,
+        # igual que User.is_premium_active) aparecen primero, sin alterar el
+        # resto del orden/algoritmo de búsqueda.
+        .order_by(
+            case(
+                (
+                    and_(User.has_premium.is_(True), User.premium_expires_at > func.now()),
+                    1,
+                ),
+                else_=0,
+            ).desc()
         )
         .offset(offset)
         .limit(limit)
