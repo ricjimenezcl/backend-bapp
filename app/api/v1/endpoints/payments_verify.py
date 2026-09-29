@@ -586,7 +586,10 @@ async def create_mercadopago_preference(
             "auto_return": "approved",
             # external_reference vincula la notificación webhook con user + producto
             "external_reference": f"{current_user.id}_{product.sku}",
-            "notification_url": f"{base_url.replace('localhost:8100', 'backend-bapp.onrender.com')}/api/v1/payments/mercadopago/webhook",
+            # notification_url debe apuntar al backend (no al frontend): Mercado
+            # Pago necesita alcanzar este servidor desde internet para notificar
+            # el resultado del pago.
+            "notification_url": f"{settings.BACKEND_PUBLIC_URL}/api/v1/payments/mercadopago/webhook",
         }
 
         preference_response = sdk.preference().create(preference_data)

@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     # Frontend URL (para links en emails)
     FRONTEND_URL: str = Field(default="http://localhost:8100")
 
+    # URL pública del propio backend (dominio real, no localhost). La usan los
+    # webhooks de pasarelas de pago (ej. Mercado Pago) porque deben poder
+    # alcanzar este servidor desde internet; FRONTEND_URL no sirve para esto
+    # porque apunta al dominio del frontend, no al del backend.
+    BACKEND_PUBLIC_URL: str = Field(default="https://backend-bapp.onrender.com")
+
     # Resend Email Service
     RESEND_API_KEY: Optional[str] = Field(default=None)
     RESEND_FROM_EMAIL: str = Field(default="BAPP <onboarding@resend.dev>")
