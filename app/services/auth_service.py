@@ -244,6 +244,26 @@ class AuthService:
             result = await self.db.execute(select(Provider).where(Provider.run == normalized_run))
             existing_provider = result.scalar_one_or_none()
             if existing_provider:
+                # Si el RUN ya existe y además pertenece a la misma cuenta (mismo
+                # email), el mensaje relevante para el usuario es que su correo
+                # ya está registrado (más accionable: "inicia sesión") en vez del
+                # genérico "RUN ya registrado".
+                owner_result = await self.db.execute(
+                    select(User).where(User.id == existing_provider.user_id)
+                )
+                existing_owner = owner_result.scalar_one_or_none()
+                if existing_owner and existing_owner.email.strip().lower() == normalized_email:
+                    logger.warning(
+                        "register_provider duplicate run+email incoming_email=%s existing_provider_id=%s existing_run=%s",
+                        normalized_email,
+                        existing_provider.id,
+                        existing_provider.run,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=EMAIL_ALREADY_REGISTERED
+                    )
+
                 logger.warning(
                     "register_provider duplicate run incoming=%s existing_provider_id=%s existing_run=%s",
                     normalized_run,
