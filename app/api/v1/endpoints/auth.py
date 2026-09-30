@@ -854,12 +854,31 @@ async def verify_email(
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+        raise HTTPException(status_code=400, detail="Token de verificación inválido.")
 
     if user.email_verified:
         return {"message": "Correo verificado correctamente. Ya puedes iniciar sesión."}
 
-    if not user.email_verification_expiration or user.email_verification_expiration < datetime.utcnow():
+    # Normalización defensiva: en algunos entornos la columna puede devolver
+    # un datetime aware (TIMESTAMPTZ) o incluso un string, dependiendo del
+    # driver/migración. Sin esto, comparar contra un naive datetime.utcnow()
+    # puede lanzar TypeError o, peor, dar un resultado incorrecto silencioso
+    # (mismo problema histórico que tuvo reset_token_expiration).
+    expiration = user.email_verification_expiration
+    if isinstance(expiration, str):
+        try:
+            expiration = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+        except ValueError:
+            expiration = None
+    if isinstance(expiration, datetime) and expiration.tzinfo is None:
+        expiration = expiration.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    if not isinstance(expiration, datetime) or expiration < now:
+        logger.warning(
+            "verify_email: token expirado o sin expiración user_id=%s expiration=%s now=%s",
+            user.id, user.email_verification_expiration, now,
+        )
         raise HTTPException(status_code=400, detail="El enlace de verificación ha expirado. Solicita uno nuevo.")
 
     user.email_verified = True
