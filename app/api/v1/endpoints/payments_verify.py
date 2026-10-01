@@ -9,6 +9,7 @@ from decimal import Decimal
 import hashlib
 import hmac
 import json
+import logging
 
 from app.dependencies import get_db, get_current_user
 from app.models.user import User
@@ -27,6 +28,8 @@ from app.schemas.monetization import (
     PaymentVerificationResponse
 )
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -663,13 +666,28 @@ async def mercadopago_webhook(
     # --- Validación de firma (x-signature) ---
     # Mercado Pago envía: x-signature: ts=<timestamp>,v1=<hash>
     # El hash es HMAC-SHA256 de "id:<payment_id>;request-id:<x-request-id>;ts:<ts>"
-    # usando MERCADO_PAGO_ACCESS_TOKEN como clave secreta.
+    # usando la "Clave secreta" dedicada del panel de notificaciones webhook
+    # (Tus integraciones > Webhooks > Configurar notificaciones > Clave secreta).
+    # Esa clave es DISTINTA del Access Token — usar el Access Token aquí es
+    # incorrecto y hace que la firma nunca calce con la que envía Mercado Pago.
+    webhook_secret = settings.MERCADO_PAGO_WEBHOOK_SECRET
+    if not webhook_secret:
+        # Fallback legacy para no romper despliegues que aún no configuraron la
+        # clave dedicada. No es confiable: lo normal es que la firma real no
+        # calce con el Access Token, por eso se loguea como advertencia.
+        logger.warning(
+            "[MP webhook] MERCADO_PAGO_WEBHOOK_SECRET no configurado; usando "
+            "MERCADO_PAGO_ACCESS_TOKEN como fallback para validar x-signature "
+            "(no recomendado, la firma real probablemente no calzará)."
+        )
+        webhook_secret = settings.MERCADO_PAGO_ACCESS_TOKEN
+
     x_signature = request.headers.get("x-signature", "")
     x_request_id = request.headers.get("x-request-id", "")
 
     body_bytes = await request.body()
 
-    if settings.MERCADO_PAGO_ACCESS_TOKEN and x_signature:
+    if webhook_secret and x_signature:
         try:
             # Parsear ts y v1 del header
             sig_parts = dict(part.split("=", 1) for part in x_signature.split(",") if "=" in part)
@@ -681,12 +699,13 @@ async def mercadopago_webhook(
 
             manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
             expected = hmac.new(
-                settings.MERCADO_PAGO_ACCESS_TOKEN.encode(),
+                webhook_secret.encode(),
                 manifest.encode(),
                 hashlib.sha256
             ).hexdigest()
 
             if v1 and expected != v1:
+                logger.error("[MP webhook] Firma x-signature inválida (payment_id=%s)", data_id)
                 raise HTTPException(status_code=401, detail="Invalid webhook signature")
         except (json.JSONDecodeError, KeyError):
             # Si no podemos parsear, continuar (MP no siempre envía signature en desarrollo)

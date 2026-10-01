@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # External APIs (optional for development)
     GEOAPIFY_API_KEY: Optional[str] = Field(default=None)
     MERCADO_PAGO_ACCESS_TOKEN: Optional[str] = Field(default=None)
+    # Clave secreta dedicada del panel de notificaciones webhook de Mercado Pago
+    # (Tus integraciones > Webhooks > Configurar notificaciones > Clave secreta).
+    # Distinta del Access Token — se usa SOLO para validar la firma x-signature.
+    MERCADO_PAGO_WEBHOOK_SECRET: Optional[str] = Field(default=None)
     # Transbank Webpay Plus — ambas credenciales requeridas para producción
     TRANSBANK_COMMERCE_CODE: Optional[str] = Field(default=None)
     TRANSBANK_API_KEY: Optional[str] = Field(default=None)
