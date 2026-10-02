@@ -9,7 +9,7 @@
 -- fallback hardcodeado en PRODUCT_TYPE_CONFIG, pero sin fila real asociada.
 -- ============================================
 
-INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, product_metadata) VALUES
+INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, product_metadata, is_active) VALUES
 (
     'client_unlock_30days',
     'Acceso Cliente 30 días',
@@ -19,7 +19,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     5.50,
     4990,
     0,
-    '{"benefits": ["Acceso a todos los proveedores disponibles", "Contacto sin límites durante la vigencia", "Activación después de confirmar el pago", "Búsqueda por ubicación y categoría"]}'::jsonb
+    '{"benefits": ["Acceso a todos los proveedores disponibles", "Contacto sin límites durante la vigencia", "Activación después de confirmar el pago", "Búsqueda por ubicación y categoría"]}'::jsonb,
+    true
 )
 ON CONFLICT (sku) DO NOTHING;
 

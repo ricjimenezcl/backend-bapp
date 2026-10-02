@@ -11,7 +11,7 @@
 -- agrega aquí porque ya existe desde la migración 009.
 -- ============================================
 
-INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, product_metadata) VALUES
+INSERT INTO products (sku, name, description, target_role, duration_days, price_usd, price_clp, free_limit, product_metadata, is_active) VALUES
 (
     'provider_service_1year',
     'Servicio adicional 1 año',
@@ -21,7 +21,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     19.90,
     17990,
     0,
-    '{"benefits": ["365 días de publicación", "Mejor costo total frente al mensual", "Escala tu oferta de servicios"]}'::jsonb
+    '{"benefits": ["365 días de publicación", "Mejor costo total frente al mensual", "Escala tu oferta de servicios"]}'::jsonb,
+    true
 ),
 (
     'provider_leads_unlock_7days',
@@ -32,7 +33,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     1.65,
     1490,
     0,
-    '{"benefits": ["Ver clientes reales interesados", "Datos de contacto completos", "Activación inmediata"]}'::jsonb
+    '{"benefits": ["Ver clientes reales interesados", "Datos de contacto completos", "Activación inmediata"]}'::jsonb,
+    true
 ),
 (
     'provider_leads_unlock_30days',
@@ -43,7 +45,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     5.50,
     4990,
     0,
-    '{"benefits": ["Mayor ventana de conversión", "Leads completos por 30 días", "Ideal para captación continua"]}'::jsonb
+    '{"benefits": ["Mayor ventana de conversión", "Leads completos por 30 días", "Ideal para captación continua"]}'::jsonb,
+    true
 ),
 (
     'provider_premium_monthly',
@@ -54,7 +57,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     6.60,
     5990,
     0,
-    '{"benefits": ["Perfil premium", "Hasta 7 servicios activos", "Accesos premium completos"]}'::jsonb
+    '{"benefits": ["Perfil premium", "Hasta 7 servicios activos", "Accesos premium completos"]}'::jsonb,
+    true
 ),
 (
     'provider_premium_annual',
@@ -65,7 +69,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
     55.00,
     49990,
     0,
-    '{"benefits": ["Perfil premium todo el año", "Hasta 7 servicios activos", "Mejor costo total frente al mensual"]}'::jsonb
+    '{"benefits": ["Perfil premium todo el año", "Hasta 7 servicios activos", "Mejor costo total frente al mensual"]}'::jsonb,
+    true
 )
 ON CONFLICT (sku) DO NOTHING;
 
