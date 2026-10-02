@@ -34,6 +34,13 @@ router = APIRouter(tags=["payments-transbank"])
 
 _DEFAULT_PLAN_NAME = "Plan Premium"
 
+# Tope de filas procesadas por bloque en cada corrida del cron de notificaciones
+# de plan. Evita que un backlog grande (ej. primera corrida tras un deploy, o
+# un pico puntual) bloquee la request por minutos: lo no procesado en esta
+# corrida queda pendiente (columna *_notified_at sigue NULL) y se recoge en la
+# siguiente corrida programada, sin riesgo de duplicados.
+_PLAN_CRON_BATCH_LIMIT = 300
+
 
 PRODUCT_TYPE_CONFIG: Dict[str, Dict[str, Any]] = {
     "CLIENT_UNLOCK_7": {
@@ -773,6 +780,7 @@ async def notify_plan_events(
             Transaction.activated_at.isnot(None),
             Transaction.activation_notified_at.is_(None),
         )
+        .limit(_PLAN_CRON_BATCH_LIMIT)
         .all()
     )
     for tx in activated_txs:
@@ -813,6 +821,7 @@ async def notify_plan_events(
             Transaction.expires_at <= window_end,
             Transaction.renewal_reminder_sent_at.is_(None),
         )
+        .limit(_PLAN_CRON_BATCH_LIMIT)
         .all()
     )
     for tx in expiring_txs:
@@ -852,6 +861,7 @@ async def notify_plan_events(
             Transaction.expires_at <= now,
             Transaction.expiration_notified_at.is_(None),
         )
+        .limit(_PLAN_CRON_BATCH_LIMIT)
         .all()
     )
     for tx in expired_txs:
