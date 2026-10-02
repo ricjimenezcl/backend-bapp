@@ -24,6 +24,6 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
 )
 ON CONFLICT (sku) DO NOTHING;
 
-INSERT INTO platform_products (product_id, platform, platform_product_id, platform_price) VALUES
-((SELECT id FROM products WHERE sku = 'client_unlock_30days'), 'web', 'client_unlock_30days_web', '4990')
+INSERT INTO platform_products (product_id, platform, platform_product_id, platform_price, is_active) VALUES
+((SELECT id FROM products WHERE sku = 'client_unlock_30days'), 'web', 'client_unlock_30days_web', '4990', true)
 ON CONFLICT (product_id, platform) DO NOTHING;

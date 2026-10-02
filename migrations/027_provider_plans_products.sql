@@ -74,8 +74,8 @@ INSERT INTO products (sku, name, description, target_role, duration_days, price_
 )
 ON CONFLICT (sku) DO NOTHING;
 
-INSERT INTO platform_products (product_id, platform, platform_product_id, platform_price)
-SELECT id, 'web', sku || '_web', price_clp::text
+INSERT INTO platform_products (product_id, platform, platform_product_id, platform_price, is_active)
+SELECT id, 'web', sku || '_web', price_clp::text, true
 FROM products
 WHERE sku IN (
     'provider_service_1year',
