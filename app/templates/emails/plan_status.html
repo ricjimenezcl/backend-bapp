@@ -1,0 +1,21 @@
+{% extends "emails/base.html" %}
+{% block content %}
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+
+    <div style="background: #f1f5f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Plan:</strong> {{ product_name }}</p>
+        {% if expires_str %}
+        <p style="margin: 8px 0 0;"><strong>Vigencia hasta:</strong> <span class="highlight">{{ expires_str }}</span></p>
+        {% endif %}
+    </div>
+
+    {% if action_url %}
+    <div style="text-align: center;">
+        <a href="{{ action_url }}" class="button">{{ action_text }}</a>
+    </div>
+    {% endif %}
+
+    <div class="divider"></div>
+    <p style="font-size: 14px;">Puedes revisar el estado de tu plan desde la sección "Resumen" de tu perfil en BAPP Search.</p>
+{% endblock %}

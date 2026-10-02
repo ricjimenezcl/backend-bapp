@@ -27,6 +27,9 @@ class NotificationType(str, PyEnum):
     SERVICE_REJECTED = "service_rejected"
     PAYMENT_RECEIVED = "payment_received"
     PAYMENT_FAILED = "payment_failed"
+    PLAN_ACTIVATED = "plan_activated"
+    PLAN_EXPIRING_SOON = "plan_expiring_soon"
+    PLAN_EXPIRED = "plan_expired"
 
 
 class Notification(Base):

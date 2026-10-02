@@ -32,6 +32,8 @@ from app.services.transbank_service import TransbankService
 
 router = APIRouter(tags=["payments-transbank"])
 
+_DEFAULT_PLAN_NAME = "Plan Premium"
+
 
 PRODUCT_TYPE_CONFIG: Dict[str, Dict[str, Any]] = {
     "CLIENT_UNLOCK_7": {
@@ -215,6 +217,7 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
     duration_days = PRODUCT_TYPE_CONFIG.get(product_type, {}).get("duration_days", 7)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires_at = now + timedelta(days=duration_days)
+    tx.activated_at = now
 
     user = db.query(User).filter(User.id == tx.user_id).first()
     if not user:
@@ -678,3 +681,205 @@ async def notify_expiring_service_slots(
             failed += 1
 
     return {"checked": len(slots), "sent": sent, "failed": failed}
+
+
+def _plan_profile_url(user: User) -> str:
+    base = settings.FRONTEND_URL.rstrip("/")
+    return f"{base}/provider/tabs/profile" if user.role == "PROVIDER" else f"{base}/client/tabs/profile"
+
+
+def _plan_user_display_name(user: User) -> str:
+    client_profile = getattr(user, "client_profile", None)
+    if client_profile and getattr(client_profile, "full_name", None):
+        return client_profile.full_name
+    provider_profile = getattr(user, "provider_profile", None)
+    if provider_profile and getattr(provider_profile, "full_name", None):
+        return provider_profile.full_name
+    return user.email
+
+
+@router.post("/transbank/internal/notify-plan-events", include_in_schema=False)
+async def notify_plan_events(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Endpoint interno protegido por secreto compartido, pensado para ser
+    invocado por un cron (Render Cron Job / cron-job.org) 1 vez al día.
+
+    Recorre `transactions` (independiente de la pasarela de pago: Transbank,
+    Mercado Pago, Google Play, Apple IAP) y envía notificación in-app (push
+    vía WebSocket) + email para 3 eventos del ciclo de vida de un plan:
+      1. Activación/inicio de plan (`activated_at` reciente, sin notificar).
+      2. Aviso de renovación (vence dentro de los próximos 5 días).
+      3. Término/expiración (ya venció), marcando además la transacción
+         como `EXPIRED`.
+
+    Cada evento se marca con su propia columna `*_notified_at`/`*_sent_at`
+    en `transactions` para evitar reenvíos duplicados en corridas sucesivas.
+    """
+    cron_secret = settings.CRON_SECRET
+    provided = request.headers.get("X-Cron-Secret")
+    if not cron_secret or provided != cron_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from app.models.notification import Notification, NotificationType
+    from app.models.product import Product
+    from app.services.email_service import email_service
+    from app.api.websocket.connection_manager import connection_manager
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_end = now + timedelta(days=5)
+
+    async def _notify_in_app(user: User, notif_type: "NotificationType", title: str, content: str, tx: Transaction) -> None:
+        try:
+            notif = Notification(
+                user_id=user.id,
+                notification_type=notif_type,
+                title=title,
+                content=content,
+                related_entity_type="transaction",
+                related_entity_id=tx.id,
+            )
+            db.add(notif)
+            db.commit()
+            db.refresh(notif)
+
+            ws_message = {
+                **connection_manager.format_notification(
+                    notification_id=notif.id,
+                    notification_type=notif_type.value,
+                    title=title,
+                    content=content,
+                    related_entity_id=tx.id,
+                ),
+                "channel": "notification",
+                "data": {"transaction_id": tx.id},
+            }
+            await connection_manager.broadcast_to_user(user.id, ws_message)
+        except Exception:
+            db.rollback()
+
+    result = {
+        "activated": {"checked": 0, "sent": 0, "failed": 0},
+        "renewal_reminder": {"checked": 0, "sent": 0, "failed": 0},
+        "expired": {"checked": 0, "sent": 0, "failed": 0},
+    }
+
+    # 1) Activación / inicio de plan
+    activated_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.status == TransactionStatus.COMPLETED,
+            Transaction.activated_at.isnot(None),
+            Transaction.activation_notified_at.is_(None),
+        )
+        .all()
+    )
+    for tx in activated_txs:
+        result["activated"]["checked"] += 1
+        user = db.query(User).filter(User.id == tx.user_id).first()
+        if not user or not user.email:
+            continue
+        product = db.query(Product).filter(Product.id == tx.product_id).first() if tx.product_id else None
+        product_name = product.name if product else _DEFAULT_PLAN_NAME
+        try:
+            ok = await email_service.send_plan_activated_email(
+                email=user.email,
+                user_name=_plan_user_display_name(user),
+                product_name=product_name,
+                expires_at=tx.expires_at,
+                profile_url=_plan_profile_url(user),
+            )
+            await _notify_in_app(
+                user, NotificationType.PLAN_ACTIVATED,
+                "¡Tu plan está activo!",
+                f"El plan {product_name} fue activado correctamente.",
+                tx,
+            )
+            tx.activation_notified_at = now
+            db.commit()
+            result["activated"]["sent" if ok else "failed"] += 1
+        except Exception:
+            db.rollback()
+            result["activated"]["failed"] += 1
+
+    # 2) Aviso de renovación (vence dentro de los próximos 5 días)
+    expiring_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.status == TransactionStatus.COMPLETED,
+            Transaction.expires_at.isnot(None),
+            Transaction.expires_at > now,
+            Transaction.expires_at <= window_end,
+            Transaction.renewal_reminder_sent_at.is_(None),
+        )
+        .all()
+    )
+    for tx in expiring_txs:
+        result["renewal_reminder"]["checked"] += 1
+        user = db.query(User).filter(User.id == tx.user_id).first()
+        if not user or not user.email:
+            continue
+        product = db.query(Product).filter(Product.id == tx.product_id).first() if tx.product_id else None
+        product_name = product.name if product else _DEFAULT_PLAN_NAME
+        try:
+            ok = await email_service.send_plan_expiring_soon_email(
+                email=user.email,
+                user_name=_plan_user_display_name(user),
+                product_name=product_name,
+                expires_at=tx.expires_at,
+                renew_url=_plan_profile_url(user),
+            )
+            await _notify_in_app(
+                user, NotificationType.PLAN_EXPIRING_SOON,
+                "Tu plan vence pronto",
+                f"El plan {product_name} vence el {tx.expires_at.strftime('%d/%m/%Y')}. Renueva para no perder tus beneficios.",
+                tx,
+            )
+            tx.renewal_reminder_sent_at = now
+            db.commit()
+            result["renewal_reminder"]["sent" if ok else "failed"] += 1
+        except Exception:
+            db.rollback()
+            result["renewal_reminder"]["failed"] += 1
+
+    # 3) Término / expiración de plan
+    expired_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.status == TransactionStatus.COMPLETED,
+            Transaction.expires_at.isnot(None),
+            Transaction.expires_at <= now,
+            Transaction.expiration_notified_at.is_(None),
+        )
+        .all()
+    )
+    for tx in expired_txs:
+        result["expired"]["checked"] += 1
+        user = db.query(User).filter(User.id == tx.user_id).first()
+        if not user or not user.email:
+            continue
+        product = db.query(Product).filter(Product.id == tx.product_id).first() if tx.product_id else None
+        product_name = product.name if product else _DEFAULT_PLAN_NAME
+        try:
+            ok = await email_service.send_plan_expired_email(
+                email=user.email,
+                user_name=_plan_user_display_name(user),
+                product_name=product_name,
+                renew_url=_plan_profile_url(user),
+            )
+            await _notify_in_app(
+                user, NotificationType.PLAN_EXPIRED,
+                "Tu plan ha finalizado",
+                f"El plan {product_name} venció. Renueva cuando quieras para recuperar tus beneficios.",
+                tx,
+            )
+            tx.status = TransactionStatus.EXPIRED
+            tx.expiration_notified_at = now
+            db.commit()
+            result["expired"]["sent" if ok else "failed"] += 1
+        except Exception:
+            db.rollback()
+            result["expired"]["failed"] += 1
+
+    return result

@@ -65,6 +65,11 @@ class Transaction(Base):
     expires_at = Column(TIMESTAMP, index=True)
     benefit_metadata = Column(JSON)  # Información del beneficio activado
 
+    # Notificaciones de ciclo de vida del plan (evitan reenvíos duplicados)
+    activation_notified_at = Column(TIMESTAMP)
+    renewal_reminder_sent_at = Column(TIMESTAMP)
+    expiration_notified_at = Column(TIMESTAMP)
+
     # Auditoría y timestamps
     created_at = Column(TIMESTAMP, server_default=func.now(), index=True)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

@@ -127,6 +127,7 @@ async def lifespan(app: FastAPI):
         ("023 (subcategories + timestamp defaults)", migrations_dir / "023_subcategories_and_timestamps.sql"),
         ("026 (client unlock 30 days product)", migrations_dir / "026_client_unlock_30days_product.sql"),
         ("027 (provider plans products)", migrations_dir / "027_provider_plans_products.sql"),
+        ("028 (transaction plan notifications)", migrations_dir / "028_transaction_plan_notifications.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:

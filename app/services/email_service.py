@@ -11,6 +11,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+_PLAN_DATE_FMT = "%d/%m/%Y"
+
 class EmailService:
     """
     Email service using Resend for transactional emails
@@ -381,6 +383,57 @@ class EmailService:
             "action_url": f"{settings.FRONTEND_URL}/provider/tabs/my-services",
         })
         return await self._send(email, "Tu publicación vence pronto - BAPP Search", html)
+
+    async def send_plan_activated_email(
+        self, email: str, user_name: str, product_name: str, expires_at: Any, profile_url: str
+    ) -> bool:
+        """Notifica al usuario que su plan/suscripción fue activado (inicio del plan)."""
+        expires_str = expires_at.strftime("%d/%m/%Y") if expires_at else None
+        vigencia_msg = f" Estará vigente hasta el <strong>{expires_str}</strong>." if expires_str else ""
+        html = self._render("plan_status", {
+            "title": "¡Tu plan está activo! 🎉",
+            "message": f"Hola {user_name}, el plan <strong>{product_name}</strong> fue activado correctamente.{vigencia_msg}",
+            "product_name": product_name,
+            "expires_str": expires_str,
+            "action_text": "Ver mi plan",
+            "action_url": profile_url,
+        })
+        return await self._send(email, f"Tu plan {product_name} está activo - BAPP Search", html)
+
+    async def send_plan_expiring_soon_email(
+        self, email: str, user_name: str, product_name: str, expires_at: Any, renew_url: str
+    ) -> bool:
+        """Recordatorio de renovación: el plan vence en pocos días."""
+        expires_str = expires_at.strftime("%d/%m/%Y") if expires_at else "próximamente"
+        html = self._render("plan_status", {
+            "title": "Tu plan vence pronto ⏳",
+            "message": (
+                f"Hola {user_name}, tu plan <strong>{product_name}</strong> vencerá el "
+                f"<strong>{expires_str}</strong>. Renuévalo para no perder tus beneficios."
+            ),
+            "product_name": product_name,
+            "expires_str": expires_str,
+            "action_text": "Renovar plan",
+            "action_url": renew_url,
+        })
+        return await self._send(email, f"Tu plan {product_name} vence pronto - BAPP Search", html)
+
+    async def send_plan_expired_email(
+        self, email: str, user_name: str, product_name: str, renew_url: str
+    ) -> bool:
+        """Aviso de término: el plan ya venció."""
+        html = self._render("plan_status", {
+            "title": "Tu plan ha finalizado",
+            "message": (
+                f"Hola {user_name}, el plan <strong>{product_name}</strong> ha finalizado. "
+                "Puedes renovarlo cuando quieras para recuperar tus beneficios."
+            ),
+            "product_name": product_name,
+            "expires_str": None,
+            "action_text": "Renovar plan",
+            "action_url": renew_url,
+        })
+        return await self._send(email, f"Tu plan {product_name} ha finalizado - BAPP Search", html)
 
 # Export singleton instance
 email_service = EmailService()
