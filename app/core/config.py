@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # Google Play
     GOOGLE_PLAY_PACKAGE_NAME: str = Field(default="io.ionic.bappsearch")
     GOOGLE_PLAY_SERVICE_ACCOUNT_FILE: Optional[str] = Field(default=None)
+    # RevenueCat — valor del header "Authorization" configurado en
+    # RevenueCat (Project settings > Integrations > Webhooks). RevenueCat
+    # reenvía este mismo valor en cada POST al webhook; se compara tal cual
+    # (no es HMAC). Rotar aquí y en el dashboard de RevenueCat al mismo tiempo.
+    REVENUECAT_WEBHOOK_AUTH_HEADER: Optional[str] = Field(default=None)
     SII_API_KEY: Optional[str] = Field(default=None)
     SII_SECRET_KEY: Optional[str] = Field(default=None)
 

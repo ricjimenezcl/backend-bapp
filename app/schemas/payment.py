@@ -174,6 +174,11 @@ class WebpayProductTypeEnum(str, Enum):
     PROVIDER_LEADS_7 = "PROVIDER_LEADS_7"
     PROVIDER_LEADS_30 = "PROVIDER_LEADS_30"
     PROVIDER_PREMIUM_MONTHLY = "PROVIDER_PREMIUM_MONTHLY"
+    PROVIDER_PREMIUM_ANNUAL = "PROVIDER_PREMIUM_ANNUAL"
+    # Planes bundle de proveedor (reemplazan a los 6 anteriores para compras nuevas)
+    PROVIDER_PLAN_7D = "PROVIDER_PLAN_7D"
+    PROVIDER_PLAN_MONTHLY = "PROVIDER_PLAN_MONTHLY"
+    PROVIDER_PLAN_ANNUAL = "PROVIDER_PLAN_ANNUAL"
 
 
 class WebpayCreateTransactionRequest(BaseModel):

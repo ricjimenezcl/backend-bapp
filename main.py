@@ -128,6 +128,9 @@ async def lifespan(app: FastAPI):
         ("026 (client unlock 30 days product)", migrations_dir / "026_client_unlock_30days_product.sql"),
         ("027 (provider plans products)", migrations_dir / "027_provider_plans_products.sql"),
         ("028 (transaction plan notifications)", migrations_dir / "028_transaction_plan_notifications.sql"),
+        ("029 (provider bundle plans)", migrations_dir / "029_provider_bundle_plans.sql"),
+        ("030 (revenuecat provider plans)", migrations_dir / "030_revenuecat_provider_plans.sql"),
+        ("031 (sync client plans revenuecat)", migrations_dir / "031_sync_client_plans_revenuecat.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:

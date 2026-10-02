@@ -83,6 +83,26 @@ PRODUCT_TYPE_CONFIG: Dict[str, Dict[str, Any]] = {
         "duration_days": 365,
         "skus": ["provider_premium_annual"],
     },
+    # Planes bundle de proveedor (3 planes únicos, cada uno otorga TODOS los
+    # beneficios juntos: premium + hasta 7 servicios activos + leads
+    # desbloqueados). Reemplazan a los 6 productos granulares anteriores
+    # para compras NUEVAS; los tipos anteriores se mantienen arriba solo
+    # para no romper transacciones ya existentes/en curso.
+    "PROVIDER_PLAN_7D": {
+        "amount": 1490,
+        "duration_days": 7,
+        "skus": ["provider_plan_7days"],
+    },
+    "PROVIDER_PLAN_MONTHLY": {
+        "amount": 5990,
+        "duration_days": 30,
+        "skus": ["provider_plan_monthly"],
+    },
+    "PROVIDER_PLAN_ANNUAL": {
+        "amount": 49990,
+        "duration_days": 365,
+        "skus": ["provider_plan_annual"],
+    },
 }
 
 
@@ -235,19 +255,43 @@ def _apply_benefit(db: Session, tx: Transaction) -> None:
         "CLIENT_UNLOCK_30",
         "PROVIDER_PREMIUM_MONTHLY",
         "PROVIDER_PREMIUM_ANNUAL",
+        "PROVIDER_PLAN_7D",
+        "PROVIDER_PLAN_MONTHLY",
+        "PROVIDER_PLAN_ANNUAL",
     ):
         user.has_premium = True
         user.premium_activated_at = now
         user.premium_expires_at = expires_at
         tx.expires_at = expires_at
 
-        if product_type in ("PROVIDER_PREMIUM_MONTHLY", "PROVIDER_PREMIUM_ANNUAL"):
-            # Premium Proveedor otorga hasta 7 servicios activos en total
-            # (2 gratis + 5 de Premium, slots 3-7) sin necesidad de comprar
-            # cada slot por separado vía PROVIDER_SERVICE_30/YEAR.
+        if product_type in (
+            "PROVIDER_PREMIUM_MONTHLY",
+            "PROVIDER_PREMIUM_ANNUAL",
+            "PROVIDER_PLAN_7D",
+            "PROVIDER_PLAN_MONTHLY",
+            "PROVIDER_PLAN_ANNUAL",
+        ):
+            # Premium Proveedor / Planes bundle otorgan hasta 7 servicios
+            # activos en total (2 gratis + 5 adicionales, slots 3-7).
             provider = db.query(Provider).filter(Provider.user_id == user.id).first()
             if provider:
                 _activate_premium_service_slots(db, provider, tx, now, expires_at)
+
+                if product_type in ("PROVIDER_PLAN_7D", "PROVIDER_PLAN_MONTHLY", "PROVIDER_PLAN_ANNUAL"):
+                    # Los 3 planes bundle además desbloquean el acceso a
+                    # leads (clientes interesados) durante toda su vigencia,
+                    # a diferencia de PROVIDER_PREMIUM_* (legacy) que no lo
+                    # incluía.
+                    unlock = ServiceViewUnlock(
+                        provider_id=provider.id,
+                        payment_reference=f"TBK-{tx.buy_order}",
+                        amount=Decimal(tx.amount),
+                        currency="CLP",
+                        status="active",
+                        unlocked_at=now,
+                        expires_at=expires_at,
+                    )
+                    db.add(unlock)
 
     elif product_type in ("PROVIDER_LEADS_7", "PROVIDER_LEADS_30"):
         provider = db.query(Provider).filter(Provider.user_id == user.id).first()
@@ -424,6 +468,9 @@ def create_transbank_transaction(
         "CLIENT_UNLOCK_30",
         "PROVIDER_PREMIUM_MONTHLY",
         "PROVIDER_PREMIUM_ANNUAL",
+        "PROVIDER_PLAN_7D",
+        "PROVIDER_PLAN_MONTHLY",
+        "PROVIDER_PLAN_ANNUAL",
     ) and current_user.is_premium_active:
         raise HTTPException(
             status_code=409,

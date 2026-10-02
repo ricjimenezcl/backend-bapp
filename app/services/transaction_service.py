@@ -310,6 +310,52 @@ class TransactionService:
                 )
                 db.add(unlock)
 
+        elif product.sku in ("provider_plan_7days", "provider_plan_monthly", "provider_plan_annual"):
+            # Planes bundle de proveedor: otorgan TODOS los beneficios juntos
+            # (premium + hasta 7 servicios activos + leads desbloqueados),
+            # reemplazando a los 3 flujos anteriores (premium/slots/leads)
+            # que se compraban por separado.
+            user.has_premium = True
+            user.premium_activated_at = activated_at
+            user.premium_expires_at = expires_at
+
+            provider = db.query(Provider).filter(
+                Provider.user_id == user.id
+            ).first()
+
+            if provider:
+                for slot_number in range(3, 8):
+                    slot = db.query(ProviderServiceSlot).filter(
+                        and_(
+                            ProviderServiceSlot.provider_id == provider.id,
+                            ProviderServiceSlot.slot_number == slot_number
+                        )
+                    ).first()
+
+                    if not slot:
+                        slot = ProviderServiceSlot(
+                            provider_id=provider.id,
+                            slot_number=slot_number,
+                            is_free=False
+                        )
+                        db.add(slot)
+
+                    slot.transaction_id = transaction.id
+                    slot.activated_at = activated_at
+                    slot.expires_at = expires_at
+                    slot.is_active = True
+
+                unlock = ServiceViewUnlock(
+                    provider_id=provider.id,
+                    payment_reference=f"MP-{transaction.id}",
+                    amount=Decimal(transaction.amount),
+                    currency=transaction.currency,
+                    status="active",
+                    unlocked_at=activated_at,
+                    expires_at=expires_at,
+                )
+                db.add(unlock)
+
         db.commit()
         db.refresh(transaction)
 

@@ -557,7 +557,13 @@ async def create_mercadopago_preference(
     # que expire, evitando pagos duplicados por error o confusión de UI.
     if (
         product.target_role == "CLIENT"
-        or product.sku in ("provider_premium_monthly", "provider_premium_annual")
+        or product.sku in (
+            "provider_premium_monthly",
+            "provider_premium_annual",
+            "provider_plan_7days",
+            "provider_plan_monthly",
+            "provider_plan_annual",
+        )
     ) and current_user.is_premium_active:
         raise HTTPException(
             status_code=409,

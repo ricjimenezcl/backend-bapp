@@ -18,6 +18,7 @@ from .report import Report, ReportType, ReportStatus, ReportedEntityType, Modera
 from .blocked_word import BlockedWord, WordCategory, SeverityLevel
 from .moderation_history import ModerationHistory, ModerationType
 from .transaction import Transaction
+from .webhook_event import WebhookEvent
 from .provider_service_slot import ProviderServiceSlot
 from .service_view_unlock import ServiceViewUnlock
 from .service_view_event import ServiceViewEvent
@@ -42,6 +43,7 @@ __all__ = [
     "Product",
     "PlatformProduct",
     "Transaction",
+    "WebhookEvent",
     "ProviderServiceSlot",
     "Message",
     "MessageStatus",
