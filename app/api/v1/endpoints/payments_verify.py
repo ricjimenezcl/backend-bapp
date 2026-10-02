@@ -13,6 +13,7 @@ import logging
 
 from app.dependencies import get_db, get_current_user
 from app.models.user import User
+from app.models.transaction import Transaction, TransactionStatus
 from app.services.validators import (
     GooglePlayValidator,
     AppleIAPValidator,
@@ -745,21 +746,48 @@ async def mercadopago_webhook(
     if mp_status != "approved":
         return {"status": "ignored", "reason": f"payment_status={mp_status}"}
 
-    # --- Reconciliar con Transaction por platform_order_id (preference_id) ---
+    # --- Reconciliar con Transaction ---
+    # El recurso Payment de Mercado Pago NO siempre incluye "preference_id" en
+    # el top-level de la respuesta (de hecho, en Checkout Pro normalmente NO
+    # viene), por lo que confiar solo en ese campo deja la reconciliación en
+    # None silenciosamente y la transacción queda PENDING para siempre. Se usa
+    # como método principal "external_reference" (formato "{user_id}_{sku}",
+    # seteado por nosotros al crear la preferencia), que MP sí refleja de
+    # forma confiable en el pago. platform_order_id/preference_id se mantiene
+    # como fallback por compatibilidad.
     preference_id = str(payment_data.get("preference_id", ""))
 
     transaction = None
-    if preference_id:
-        transaction = db.query(__import__('app.models.transaction', fromlist=['Transaction']).Transaction).filter(
-            __import__('app.models.transaction', fromlist=['Transaction']).Transaction.platform_order_id == preference_id
+
+    if external_ref:
+        user_id_str, _, product_sku = external_ref.partition("_")
+        if user_id_str.isdigit() and product_sku:
+            ref_product = ProductService.get_product_by_sku(db, product_sku)
+            if ref_product:
+                transaction = (
+                    db.query(Transaction)
+                    .filter(
+                        Transaction.user_id == int(user_id_str),
+                        Transaction.product_id == ref_product.id,
+                        Transaction.status == TransactionStatus.PENDING,
+                    )
+                    .order_by(Transaction.created_at.desc())
+                    .first()
+                )
+
+    if not transaction and preference_id:
+        transaction = db.query(Transaction).filter(
+            Transaction.platform_order_id == preference_id
         ).first()
 
     if not transaction:
-        logger.info(f"[MP webhook] No transaction found for preference_id={preference_id}")
+        logger.info(
+            f"[MP webhook] No transaction found (external_reference={external_ref}, "
+            f"preference_id={preference_id})"
+        )
         return {"status": "not_found", "reason": "transaction not found"}
 
     # --- Idempotencia: ya procesado ---
-    from app.models.transaction import TransactionStatus
     if transaction.status == TransactionStatus.COMPLETED:
         return {"status": "already_processed", "transaction_id": transaction.id}
 
@@ -803,3 +831,107 @@ async def mercadopago_webhook(
             logger.error(f"[MP webhook] Email error: {email_error}")
 
     return {"status": "processed", "transaction_id": transaction.id}
+
+
+@router.post("/mercadopago/sync")
+async def sync_mercadopago_pending(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Reconciliación manual bajo demanda para transacciones de Mercado Pago que
+    quedaron PENDING porque el webhook no logró reconciliarlas (p.ej. antes del
+    fix de reconciliación por external_reference, el webhook solo intentaba
+    matchear por "preference_id", campo que el recurso Payment de MP no
+    siempre devuelve).
+
+    Busca en la API de Mercado Pago (payment search por external_reference)
+    el estado real de cada transacción PENDING del usuario y activa el
+    beneficio si ya fue aprobada.
+    """
+    import mercadopago
+
+    if not settings.MERCADO_PAGO_ACCESS_TOKEN:
+        return {"status": "skipped", "reason": "MP not configured", "updated": []}
+
+    pending_txs = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == current_user.id,
+            Transaction.status == TransactionStatus.PENDING,
+        )
+        .order_by(Transaction.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    mp_pending = [
+        tx for tx in pending_txs
+        if isinstance(tx.device_info, dict) and tx.device_info.get("payment_method") == "mercadopago"
+    ]
+
+    if not mp_pending:
+        return {"status": "ok", "updated": []}
+
+    sdk = mercadopago.SDK(settings.MERCADO_PAGO_ACCESS_TOKEN)
+    updated = []
+
+    for tx in mp_pending:
+        product = ProductService.get_product_by_id(db, tx.product_id)
+        if not product:
+            continue
+
+        tx_external_ref = f"{current_user.id}_{product.sku}"
+
+        try:
+            search_response = sdk.payment().search({"external_reference": tx_external_ref})
+            results = search_response.get("response", {}).get("results", [])
+        except Exception as e:
+            logger.error(f"[MP sync] Error searching payments for {tx_external_ref}: {e}")
+            continue
+
+        approved_payment = next((p for p in results if p.get("status") == "approved"), None)
+        if not approved_payment:
+            continue
+
+        payment_id = str(approved_payment.get("id"))
+        preference_id = str(approved_payment.get("preference_id", "")) or tx.platform_order_id
+
+        TransactionService.mark_transaction_validated(
+            db=db,
+            transaction_id=tx.id,
+            platform_transaction_id=payment_id,
+            platform_order_id=preference_id,
+            validation_response=json.dumps({
+                "payment_id": payment_id,
+                "mp_status": "approved",
+                "external_reference": tx_external_ref,
+                "source": "manual_sync"
+            })
+        )
+
+        activated = TransactionService.activate_transaction_benefit(
+            db=db,
+            transaction_id=tx.id,
+            benefit_metadata={
+                "payment_provider": "mercadopago",
+                "payment_id": payment_id,
+                "preference_id": preference_id,
+                "external_reference": tx_external_ref,
+                "source": "manual_sync"
+            }
+        )
+
+        if activated:
+            updated.append(tx.id)
+            try:
+                await email_service.send_purchase_confirmation(
+                    user_email=current_user.email,
+                    user_name=current_user.full_name or current_user.email,
+                    transaction=activated,
+                    product=product
+                )
+            except Exception as email_error:
+                logger.error(f"[MP sync] Email error: {email_error}")
+
+    return {"status": "ok", "updated": updated}
