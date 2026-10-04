@@ -127,9 +127,43 @@ class AuthService:
         
         return user
 
+    @staticmethod
+    def _is_verification_token_valid(user: User) -> bool:
+        """True si el usuario tiene un token de verificación vigente (no expirado).
+
+        Normaliza defensivamente la expiración (puede llegar naive, aware o como
+        string según el driver/migración) antes de compararla con "ahora".
+        """
+        if not user.email_verification_token or not user.email_verification_expiration:
+            return False
+
+        expiration = user.email_verification_expiration
+        if isinstance(expiration, str):
+            try:
+                expiration = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+            except ValueError:
+                return False
+        if isinstance(expiration, datetime) and expiration.tzinfo is None:
+            expiration = expiration.replace(tzinfo=timezone.utc)
+
+        return isinstance(expiration, datetime) and expiration > datetime.now(timezone.utc)
+
     async def _handle_duplicate_unverified_email(self, existing_user: User, full_name: str | None, registration_source: str) -> None:
-        """Cuenta existente con el mismo email pero aún no verificada: reenvía el
-        correo de verificación y lanza el error estructurado correspondiente."""
+        """Cuenta existente con el mismo email pero aún no verificada.
+
+        Si el token de verificación anterior sigue vigente (no han pasado 24h),
+        NO se reenvía otro correo — solo se informa que ya hay uno pendiente.
+        Recién si expiró se genera y envía uno nuevo.
+        """
+        if self._is_verification_token_valid(existing_user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "EMAIL_ALREADY_REGISTERED_UNVERIFIED",
+                    "message": "Ya existe una cuenta con este correo pendiente de validación. Ya te enviamos un correo de verificación vigente por 24 horas; revisa tu bandeja de entrada (y spam).",
+                },
+            )
+
         existing_user.email_verification_token = secrets.token_urlsafe(32)
         existing_user.email_verification_expiration = datetime.utcnow() + timedelta(hours=24)
         await self.db.commit()

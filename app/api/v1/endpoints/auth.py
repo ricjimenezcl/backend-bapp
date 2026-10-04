@@ -806,13 +806,18 @@ async def send_verification_email(
     body: SendVerificationEmailRequest,
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Envía (o reenvía) el email de verificación al usuario registrado."""
+    """Envía (o reenvía) el email de verificación al usuario registrado.
+
+    Si el usuario ya tiene un token de verificación vigente (< 24h desde el
+    envío anterior), NO se genera ni envía uno nuevo — se evita hacer spam
+    de correos mientras el enlace anterior siga siendo válido.
+    """
     from app.services.email_service import get_email_service
 
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
-    if user and not user.email_verified:
+    if user and not user.email_verified and not AuthService._is_verification_token_valid(user):
         token = secrets.token_urlsafe(32)
         user.email_verification_token = token
         user.email_verification_expiration = datetime.utcnow() + timedelta(hours=24)
