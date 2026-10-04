@@ -127,6 +127,37 @@ class AuthService:
         
         return user
 
+    async def _handle_duplicate_unverified_email(self, existing_user: User, full_name: str | None, registration_source: str) -> None:
+        """Cuenta existente con el mismo email pero aún no verificada: reenvía el
+        correo de verificación y lanza el error estructurado correspondiente."""
+        existing_user.email_verification_token = secrets.token_urlsafe(32)
+        existing_user.email_verification_expiration = datetime.utcnow() + timedelta(hours=24)
+        await self.db.commit()
+        await self.db.refresh(existing_user)
+
+        try:
+            source = "mobile" if registration_source == "mobile" else "web"
+            verification_link = f"{settings.FRONTEND_URL.rstrip('/')}/auth/verify-email?token={existing_user.email_verification_token}&source={source}"
+            sent = await email_service.send_verification_email(
+                email=existing_user.email,
+                user_name=full_name or existing_user.email,
+                verification_link=verification_link,
+            )
+            if sent:
+                logger.info(f"Verification email re-sent to existing unverified account {existing_user.email}")
+            else:
+                logger.warning(f"Verification email re-send NOT sent to {existing_user.email}")
+        except Exception as e:
+            logger.error(f"Error re-sending verification email to {existing_user.email}: {e}", exc_info=True)
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "EMAIL_ALREADY_REGISTERED_UNVERIFIED",
+                "message": "Ya existe una cuenta con este correo, pero aún no ha sido validada. Te enviamos un nuevo correo de verificación.",
+            },
+        )
+
     async def register_client(self, client_data: ClientRegister, registration_source: str = "web") -> User:
         # Verificar si el usuario ya existe
         normalized_email = client_data.email.strip().lower()
@@ -149,6 +180,10 @@ class AuthService:
                 existing_user.role,
                 existing_user.status,
             )
+            if not existing_user.email_verified:
+                await self._handle_duplicate_unverified_email(
+                    existing_user, client_data.full_name, registration_source
+                )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=EMAIL_ALREADY_REGISTERED
@@ -259,6 +294,10 @@ class AuthService:
                         existing_provider.id,
                         existing_provider.run,
                     )
+                    if not existing_owner.email_verified:
+                        await self._handle_duplicate_unverified_email(
+                            existing_owner, provider_data.full_name, registration_source
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=EMAIL_ALREADY_REGISTERED
@@ -309,6 +348,10 @@ class AuthService:
                 existing_user.role,
                 existing_user.status,
             )
+            if not existing_user.email_verified:
+                await self._handle_duplicate_unverified_email(
+                    existing_user, provider_data.full_name, registration_source
+                )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=EMAIL_ALREADY_REGISTERED
