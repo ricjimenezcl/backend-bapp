@@ -67,13 +67,22 @@ async def get_current_user_optional(
                 pass  # fail-open: si Redis falla no bloqueamos
 
         email: str = payload.get("sub")
-        if not email:
+        user_id = payload.get("user_id")
+        if not email and not user_id:
             return None
     except JWTError:
         return None
 
     from sqlalchemy.future import select
-    result = await db.execute(select(User).where(User.email == email))
+    # El esquema permite el mismo email en más de un rol (ver migración
+    # 021_allow_same_email_by_role.sql), por lo que buscar solo por email
+    # puede matchear más de una fila y romper con MultipleResultsFound.
+    # El token ya trae el user_id (PK) de la cuenta exacta que inició sesión:
+    # usarlo siempre que esté disponible evita la ambigüedad.
+    if user_id is not None:
+        result = await db.execute(select(User).where(User.id == user_id))
+    else:
+        result = await db.execute(select(User).where(User.email == email))
     return result.scalar_one_or_none()
 
 
@@ -107,7 +116,8 @@ async def get_current_user(
             raise credentials_exception
 
         email: str = payload.get("sub")
-        if email is None:
+        user_id = payload.get("user_id")
+        if email is None and user_id is None:
             raise credentials_exception
 
         # JWT blacklist check — token invalidado en logout
@@ -124,9 +134,17 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    # Buscar usuario en la base de datos
+    # Buscar usuario en la base de datos.
+    # El esquema permite el mismo email en más de un rol (ver migración
+    # 021_allow_same_email_by_role.sql), por lo que buscar solo por email
+    # puede matchear más de una fila y romper con MultipleResultsFound.
+    # El token ya trae el user_id (PK) de la cuenta exacta que inició sesión:
+    # usarlo siempre que esté disponible evita la ambigüedad.
     from sqlalchemy.future import select
-    result = await db.execute(select(User).where(User.email == email))
+    if user_id is not None:
+        result = await db.execute(select(User).where(User.id == user_id))
+    else:
+        result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if user is None:
@@ -187,13 +205,20 @@ def get_current_user_sync(
             algorithms=[settings.ALGORITHM]
         )
         email: str = payload.get("sub")
-        if email is None:
+        user_id = payload.get("user_id")
+        if email is None and user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
     
-    # Buscar usuario en la BD para obtener su ID y datos completos
-    user = db.query(User).filter(User.email == email).first()
+    # Buscar usuario en la BD para obtener su ID y datos completos.
+    # Preferir user_id (PK) del token: el email puede repetirse entre roles
+    # (ver migración 021_allow_same_email_by_role.sql) y .first() elegiría
+    # una cuenta arbitraria entre las que comparten email.
+    if user_id is not None:
+        user = db.query(User).filter(User.id == user_id).first()
+    else:
+        user = db.query(User).filter(User.email == email).first()
     
     if user is None:
         raise credentials_exception
@@ -278,11 +303,18 @@ async def get_viewer_user(
                 pass  # fail-open
 
         email: str = payload.get("sub")
-        if not email:
+        user_id = payload.get("user_id")
+        if not email and not user_id:
             return None
     except JWTError:
         return None
 
     from sqlalchemy.future import select as _select
-    result = await db.execute(_select(User).where(User.email == email))
+    # Ver nota en get_current_user: el email puede repetirse entre roles
+    # (migración 021_allow_same_email_by_role.sql), usar user_id (PK) evita
+    # romper con MultipleResultsFound.
+    if user_id is not None:
+        result = await db.execute(_select(User).where(User.id == user_id))
+    else:
+        result = await db.execute(_select(User).where(User.email == email))
     return result.scalar_one_or_none()

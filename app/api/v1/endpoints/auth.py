@@ -161,10 +161,16 @@ async def logout(
         raise HTTPException(status_code=401, detail="Tipo de token inválido")
 
     email = payload.get("sub")
-    if not email:
+    user_id = payload.get("user_id")
+    if not email and not user_id:
         raise HTTPException(status_code=401, detail="Token inválido")
 
-    result = await db.execute(select(User).where(User.email == email))
+    # El email puede repetirse entre roles (migración 021_allow_same_email_by_role.sql);
+    # usar user_id (PK) del token evita romper con MultipleResultsFound.
+    if user_id is not None:
+        result = await db.execute(select(User).where(User.id == user_id))
+    else:
+        result = await db.execute(select(User).where(User.email == email))
     current_user = result.scalar_one_or_none()
     if not current_user or current_user.status != "ACTIVE":
         raise HTTPException(status_code=401, detail="Usuario inválido o inactivo")
