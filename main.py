@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI):
         ("029 (provider bundle plans)", migrations_dir / "029_provider_bundle_plans.sql"),
         ("030 (revenuecat provider plans)", migrations_dir / "030_revenuecat_provider_plans.sql"),
         ("031 (sync client plans revenuecat)", migrations_dir / "031_sync_client_plans_revenuecat.sql"),
+        ("033 (apple iap product ids v2)", migrations_dir / "033_update_apple_iap_product_ids_v2.sql"),
     ]
 
     for migration_name, migration_path in startup_migrations:
