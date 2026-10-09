@@ -157,6 +157,39 @@ def rate_limit(key: str, limit: int, window_seconds: int) -> bool:
         return True  # fail-open
 
 
+def increment_daily_counter(key: str, window_seconds: int = 86400) -> int:
+    """
+    Incrementa un contador con TTL y devuelve el nuevo valor.
+    Pensado para métricas (ej. búsquedas/día por usuario), no para enforcement.
+    Devuelve 0 si Redis no está disponible.
+    """
+    client = _get_client()
+    if client is None:
+        return 0
+    try:
+        current = client.incr(key)
+        if current == 1:
+            client.expire(key, window_seconds)
+        return current
+    except Exception as exc:
+        logger.error(f"Redis INCR COUNTER error [{key}]: {exc}")
+        return 0
+
+
+def get_counter(key: str) -> int:
+    """Lee el valor actual de un contador sin incrementarlo. Devuelve 0 si no existe o hay error."""
+    client = _get_client()
+    if client is None:
+        return 0
+    try:
+        value = client.get(key)
+        return int(value) if value is not None else 0
+    except Exception as exc:
+        logger.error(f"Redis GET COUNTER error [{key}]: {exc}")
+        return 0
+
+
+
 # --------------------------------------------------
 # Distributed locks
 # --------------------------------------------------

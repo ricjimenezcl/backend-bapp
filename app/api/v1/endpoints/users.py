@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update
+from datetime import datetime
 from app.core.database import get_db_async
+from app.core.redis import get_counter
 from app.dependencies import get_current_active_user
 from app.models.user import User, UserProfile
 from app.models.provider import Provider
@@ -20,6 +22,24 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 # ====================== ENDPOINTS ======================
+
+@router.get("/me/search-stats")
+async def get_my_search_stats(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Conteo real de búsquedas realizadas HOY (UTC) por el cliente autenticado.
+
+    Fuente: contador en Redis incrementado en providers.py (text-search, nearby/service,
+    nearby/services). No aplica a PROVIDER (siempre devuelve 0).
+    """
+    if current_user.role != "CLIENT":
+        return {"searches_today": 0, "daily_limit": None}
+
+    day_key = datetime.utcnow().strftime("%Y-%m-%d")
+    key = f"search:client:count:{current_user.id}:{day_key}"
+    count = get_counter(key)
+    daily_limit = None if current_user.is_premium_active else 3
+    return {"searches_today": count, "daily_limit": daily_limit}
 
 @router.get("/me", response_model=UserDetailResponse)
 async def read_user_me(

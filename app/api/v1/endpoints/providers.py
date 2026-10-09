@@ -37,7 +37,7 @@ from app.infra.redis import (
     get_provider_detailed_cache, set_provider_detailed_cache,
     invalidate_provider_detailed_cache, invalidate_provider_cache
 )
-from app.core.redis import rate_limit
+from app.core.redis import rate_limit, increment_daily_counter
 from app.dependencies import get_current_active_user, get_viewer_user
 from app.services.content_filter import ContentFilterService
 
@@ -112,6 +112,19 @@ def _enforce_client_daily_search_limit(current_user: Optional[User]) -> None:
     #             "upgrade_options": ["CLIENT_UNLOCK_7", "CLIENT_UNLOCK_30"],
     #         },
     #     )
+
+
+def _track_client_search(current_user: Optional[User]) -> None:
+    """Registra en Redis una búsqueda real del cliente (contador informativo por día, UTC).
+
+    Independiente del enforcement de límite (hoy deshabilitado): se usa para mostrar
+    el conteo real de búsquedas del día en el dashboard, aplique o no el límite gratuito.
+    """
+    if not current_user or current_user.role != "CLIENT":
+        return
+    day_key = datetime.utcnow().strftime("%Y-%m-%d")
+    key = f"search:client:count:{current_user.id}:{day_key}"
+    increment_daily_counter(key, 60 * 60 * 24)
 
 
 # Endpoint para validación biométrica de proveedor
@@ -333,6 +346,7 @@ async def get_nearby_providers_by_service_id(
 ):
     """Obtener proveedores cercanos por ID de servicio (paginado)"""
     _enforce_client_daily_search_limit(current_user)
+    _track_client_search(current_user)
 
     geolocation_service = GeolocationService(db)
     providers = await geolocation_service.find_nearby_providers_by_service_id(
@@ -359,6 +373,7 @@ async def get_nearby_providers_by_service_ids(
 ):
     """Búsqueda unificada por múltiples service_ids (1 operación de búsqueda)."""
     _enforce_client_daily_search_limit(current_user)
+    _track_client_search(current_user)
 
     try:
         parsed_ids = [int(x.strip()) for x in service_ids.split(",") if x.strip()]
@@ -1966,6 +1981,7 @@ async def text_search_providers(
     y nombre de categoría. Case-insensitive, match parcial (ILIKE).
     Soporta paginación con page/limit.
     """
+    _track_client_search(current_user)
     offset = (page - 1) * limit
     search_term = f"%{q}%"
 
