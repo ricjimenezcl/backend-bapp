@@ -242,7 +242,9 @@ async def websocket_unified_endpoint(
                                 "channel": "chat",
                                 "type": "error",
                                 "code": "OFFENSIVE_CONTENT_BLOCKED",
-                                "message": "El mensaje contiene terminos no permitidos.",
+                                "message": content_filter.build_blocked_message(
+                                    moderation.matches, "El mensaje contiene terminos no permitidos."
+                                ),
                                 "matches": [m.model_dump() for m in moderation.matches],
                             })
                             continue
@@ -499,7 +501,9 @@ async def websocket_chat_endpoint(
                         await websocket.send_json({
                             'type': 'error',
                             'code': 'OFFENSIVE_CONTENT_BLOCKED',
-                            'message': 'El mensaje contiene terminos no permitidos.',
+                            'message': content_filter.build_blocked_message(
+                                moderation.matches, 'El mensaje contiene terminos no permitidos.'
+                            ),
                             'matches': [m.model_dump() for m in moderation.matches]
                         })
                         continue

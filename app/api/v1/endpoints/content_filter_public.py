@@ -33,9 +33,12 @@ async def validate_content_public(
     moderation = await service.validate_text(payload.text)
 
     severities = sorted({m.severity for m in moderation.matches})
-    message = "Contenido no permitido" if moderation.blocked else None
-    if moderation.flagged and not moderation.blocked:
+    if moderation.blocked:
+        message = service.build_blocked_message(moderation.matches, "Contenido no permitido")
+    elif moderation.flagged:
         message = "Contenido potencialmente sensible"
+    else:
+        message = None
 
     return ContentFilterPublicResponse(
         blocked=moderation.blocked,

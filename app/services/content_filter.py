@@ -30,6 +30,28 @@ def normalize_text(raw_text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Etiqueta usada en ContentFilterMatch.word cuando el bloqueo es por un numero
+# de telefono (no por una palabra del diccionario de banned_words).
+PHONE_NUMBER_MATCH_LABEL = "numero_telefono"
+
+# Colapsa separadores (espacios, puntos, guiones, parentesis) SOLO cuando estan
+# exactamente entre dos digitos, para detectar numeros "disfrazados" como
+# "9 1234 5678", "+56-9-1234-5678" o "9.1234.5678" sin alterar el resto del texto.
+_PHONE_DIGIT_COLLAPSE_RE = re.compile(r"(?<=\d)[\s\-.()]+(?=\d)")
+# Una vez colapsado, cualquier corrida de 8 a 12 digitos consecutivos se
+# considera un numero de telefono (cubre moviles chilenos de 9 digitos, con o
+# sin codigo de pais +56, y fijos de 8-9 digitos).
+_PHONE_DIGIT_RUN_RE = re.compile(r"\d{8,12}")
+
+
+def contains_phone_number(raw_text: str) -> bool:
+    """Detecta si el texto incluye un numero de telefono, disfrazado o no."""
+    if not raw_text:
+        return False
+    collapsed = _PHONE_DIGIT_COLLAPSE_RE.sub("", raw_text)
+    return bool(_PHONE_DIGIT_RUN_RE.search(collapsed))
+
+
 @dataclass(frozen=True)
 class ContentFilterResult:
     blocked: bool
@@ -99,25 +121,37 @@ class ContentFilterService:
 
     async def validate_text(self, text: str) -> ContentFilterResult:
         normalized = normalize_text(text)
-        if not normalized:
-            return ContentFilterResult(blocked=False, flagged=False, matches=[])
-
-        rows = await self._get_cached_words()
         matches: list[ContentFilterMatch] = []
 
-        for row in rows:
-            normalized_word = normalize_text(row.word)
-            if not normalized_word:
-                continue
+        if normalized:
+            rows = await self._get_cached_words()
+            for row in rows:
+                normalized_word = normalize_text(row.word)
+                if not normalized_word:
+                    continue
 
-            pattern = rf"\b{re.escape(normalized_word)}\b"
-            if re.search(pattern, normalized):
-                matches.append(ContentFilterMatch(word=row.word, severity=row.severity.value))
+                pattern = rf"\b{re.escape(normalized_word)}\b"
+                if re.search(pattern, normalized):
+                    matches.append(ContentFilterMatch(word=row.word, severity=row.severity.value))
+
+        # Se evalua sobre el texto original (no el normalizado), ya que
+        # normalize_text traduce leetspeak (1->i, 3->e, 0->o, 5->s) lo que
+        # rompe las corridas de digitos de un numero de telefono.
+        if contains_phone_number(text):
+            matches.append(ContentFilterMatch(word=PHONE_NUMBER_MATCH_LABEL, severity="block"))
 
         blocked = any(m.severity == "block" for m in matches)
         flagged = any(m.severity == "flag" for m in matches)
 
         return ContentFilterResult(blocked=blocked, flagged=flagged, matches=matches)
+
+    @staticmethod
+    def build_blocked_message(matches: list[ContentFilterMatch], base_message: str) -> str:
+        """Mensaje especifico cuando el UNICO motivo de bloqueo es un numero de telefono."""
+        is_phone_block = bool(matches) and all(m.word == PHONE_NUMBER_MATCH_LABEL for m in matches)
+        if is_phone_block:
+            return "No esta permitido compartir numeros de telefono u otros datos de contacto por este medio."
+        return base_message
 
     async def validate_or_raise(self, field_name: str, text: Optional[str]) -> None:
         if text is None:
@@ -127,12 +161,21 @@ class ContentFilterService:
         if not result.blocked:
             return
 
+        is_phone_block = bool(result.matches) and all(
+            m.word == PHONE_NUMBER_MATCH_LABEL for m in result.matches
+        )
+        message = (
+            f"El campo '{field_name}' no puede incluir numeros de telefono u otros datos de contacto."
+            if is_phone_block
+            else f"El campo '{field_name}' contiene terminos no permitidos."
+        )
+
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "code": "OFFENSIVE_CONTENT_BLOCKED",
+                "code": "PHONE_NUMBER_BLOCKED" if is_phone_block else "OFFENSIVE_CONTENT_BLOCKED",
                 "field": field_name,
-                "message": f"El campo '{field_name}' contiene terminos no permitidos.",
+                "message": message,
                 "matches": [m.model_dump() for m in result.matches],
             },
         )

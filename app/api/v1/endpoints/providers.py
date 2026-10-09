@@ -39,6 +39,7 @@ from app.infra.redis import (
 )
 from app.core.redis import rate_limit
 from app.dependencies import get_current_active_user, get_viewer_user
+from app.services.content_filter import ContentFilterService
 
 # Constantes globales para evitar duplicación de literales
 PROVIDER_NOT_FOUND = "Provider not found"
@@ -1050,7 +1051,14 @@ async def create_service_provider(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Provider profile not found for this user"
             )
-        
+
+        # Backend source of truth: bloquear contenido ofensivo y numeros de
+        # telefono en los campos de texto libre del servicio (no confiar solo
+        # en la pre-validacion UX del frontend).
+        filter_service = ContentFilterService(db)
+        await filter_service.validate_or_raise("business_name", service_data.nombre_prestador)
+        await filter_service.validate_or_raise("description", service_data.detalle)
+
         # Validar perfil completo (RUN y teléfono)
         if not provider.run or not provider.phone:
             missing_fields = []
@@ -1611,7 +1619,15 @@ async def update_service_provider(
             )
 
         logger.info(f"✅ Servicio encontrado: {service_provider.business_name}")
-        
+
+        # Backend source of truth: bloquear contenido ofensivo y numeros de
+        # telefono en los campos de texto libre antes de persistir cambios.
+        filter_service = ContentFilterService(db)
+        if update_data.business_name is not None:
+            await filter_service.validate_or_raise("business_name", update_data.business_name)
+        if update_data.description is not None:
+            await filter_service.validate_or_raise("description", update_data.description)
+
         # Actualizar solo los campos proporcionados
         if update_data.business_name is not None:
             service_provider.business_name = update_data.business_name

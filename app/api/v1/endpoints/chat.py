@@ -433,12 +433,15 @@ async def send_message(
         filter_service = ContentFilterService(db)
         moderation = await filter_service.validate_text(request.content)
         if moderation.blocked:
+            message = filter_service.build_blocked_message(
+                moderation.matches, "El mensaje contiene terminos no permitidos."
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
                     "code": "OFFENSIVE_CONTENT_BLOCKED",
                     "field": "content",
-                    "message": "El mensaje contiene terminos no permitidos.",
+                    "message": message,
                     "matches": [m.model_dump() for m in moderation.matches],
                 },
             )
