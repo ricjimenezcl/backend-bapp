@@ -21,6 +21,7 @@ class NotificationType(str, PyEnum):
     BOOKING_REJECTED = "booking_rejected"
     BOOKING_REMINDER_24H = "booking_reminder_24h"
     BOOKING_COMPLETED = "booking_completed"
+    BOOKING_EXPIRED = "booking_expired"
     BOOKING_REVIEW_REQUEST = "booking_review_request"
     REVIEW_RECEIVED = "review_received"
     SERVICE_APPROVED = "service_approved"

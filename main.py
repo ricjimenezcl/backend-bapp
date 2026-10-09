@@ -437,7 +437,10 @@ async def lifespan(app: FastAPI):
                             await db.rollback()
 
                     # ──────────────────────────────────────────────────────────
-                    # CASO 2: PENDING expirado → DELETE
+                    # CASO 2: PENDING expirado (nunca aprobado por el proveedor)
+                    # → NOSHOW ("no realizado"). Antes se ELIMINABA el registro;
+                    # ahora se conserva el historial y se notifica a ambas partes
+                    # (in-app + WebSocket + email), igual que los otros 2 casos.
                     # ──────────────────────────────────────────────────────────
                     expired_result = await db.execute(
                         select(Booking).where(
@@ -466,30 +469,92 @@ async def lifespan(app: FastAPI):
                             client_r = await db.execute(select(_User).where(_User.id == b.client_id))
                             client = client_r.scalar_one_or_none()
 
-                            # Eliminar registro
-                            await db.delete(b)
+                            provider_row = await db.execute(select(_Provider).where(_Provider.id == b.provider_id))
+                            provider = provider_row.scalar_one_or_none()
+                            provider_user = None
+                            if provider:
+                                provider_user_r = await db.execute(select(_User).where(_User.id == provider.user_id))
+                                provider_user = provider_user_r.scalar_one_or_none()
+
+                            service_name = b.service_category or "Servicio"
+                            scheduled_str = b.scheduled_date.strftime("%d/%m/%Y") if b.scheduled_date else "N/A"
+
+                            # Marcar como NOSHOW ("no realizado") en vez de eliminar
+                            await db.execute(
+                                update(Booking)
+                                .where(Booking.id == b.id)
+                                .values(status=BookingStatus.NOSHOW)
+                            )
                             await db.commit()
 
-                            # SES: email de expiración (no crítico)
+                            notification_svc = NotificationService(db)
+
+                            client_msg = f"Tu reserva de {service_name} ({scheduled_str}) venció sin respuesta del proveedor."
+                            provider_msg = f"La solicitud de reserva de {service_name} ({scheduled_str}) venció sin respuesta."
+
+                            await notification_svc.create_booking_notification(
+                                user_id=b.client_id,
+                                notification_type=NotificationType.BOOKING_EXPIRED,
+                                booking_id=b.id,
+                                message=client_msg,
+                            )
+                            if provider_user:
+                                await notification_svc.create_booking_notification(
+                                    user_id=provider_user.id,
+                                    notification_type=NotificationType.BOOKING_EXPIRED,
+                                    booking_id=b.id,
+                                    message=provider_msg,
+                                )
+
+                            ws_base = {
+                                "type": "notification",
+                                "related_entity_id": b.id,
+                                "title": "Reserva no realizada",
+                                "is_read": False,
+                            }
+                            await connection_manager.broadcast_to_user(b.client_id, {
+                                **ws_base,
+                                "notification_type": "booking_expired",
+                                "content": client_msg,
+                                "message": client_msg,
+                            })
+                            if provider_user:
+                                await connection_manager.broadcast_to_user(provider_user.id, {
+                                    **ws_base,
+                                    "notification_type": "booking_expired",
+                                    "content": provider_msg,
+                                    "message": provider_msg,
+                                })
+
+                            publish_to_user(b.client_id, "booking_expired", {
+                                "booking_id": b.id,
+                                "related_entity_id": b.id,
+                            })
+                            if provider_user:
+                                publish_to_user(provider_user.id, "booking_expired", {
+                                    "booking_id": b.id,
+                                    "related_entity_id": b.id,
+                                })
+
+                            # SES: email de expiración al cliente (no crítico)
                             if client:
-                                scheduled_str = b.scheduled_date.strftime("%d/%m/%Y") if b.scheduled_date else "N/A"
                                 search_url = f"{frontend_url}/services"
                                 _asyncio.create_task(email_svc.send_booking_expired_email(
                                     client_email=client.email,
                                     client_name=getattr(client, "full_name", "") or client.email,
-                                    service_name=b.service_category or "Servicio",
+                                    service_name=service_name,
                                     scheduled_date=scheduled_str,
                                     search_url=search_url,
                                 ))
 
-                            logger.info(f"[CRON] 🗑️ Deleted expired PENDING booking {b.id} for client {b.client_id}")
+                            logger.info(f"[CRON] ⏱️ Marked PENDING booking {b.id} as NOSHOW (expired without response)")
 
                         except Exception as exc:
-                            logger.error(f"[CRON] ❌ Error deleting expired booking {b.id}: {exc}")
+                            logger.error(f"[CRON] ❌ Error marking expired booking {b.id} as NOSHOW: {exc}")
                             await db.rollback()
 
                     logger.info(
-                        f"[CRON] Maintenance complete — reminders_24h: {reminder_sent}, completed: {len(to_complete)}, expired/deleted: {len(expired_bookings)}"
+                        f"[CRON] Maintenance complete — reminders_24h: {reminder_sent}, completed: {len(to_complete)}, expired_noshow: {len(expired_bookings)}"
                     )
 
             except Exception as exc:
