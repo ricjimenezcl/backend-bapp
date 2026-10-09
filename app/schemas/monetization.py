@@ -22,7 +22,12 @@ class ProductBase(BaseModel):
     price_clp: Decimal = Field(..., decimal_places=2)
     free_limit: int = Field(default=0, ge=0)
     is_active: bool = True
-    metadata: Optional[Dict[str, Any]] = None
+    # Nombre debe calzar con la columna real del modelo (`product_metadata`):
+    # el atributo `metadata` en instancias de SQLAlchemy está reservado por
+    # `Base.metadata` (el registro de MetaData), así que usar ese nombre aquí
+    # hacía que Pydantic leyera el objeto MetaData en vez del valor real,
+    # rompiendo la respuesta con ResponseValidationError (500).
+    product_metadata: Optional[Dict[str, Any]] = None
 
 
 class ProductCreate(ProductBase):
@@ -37,7 +42,7 @@ class ProductUpdate(BaseModel):
     price_usd: Optional[Decimal] = Field(None, decimal_places=2)
     price_clp: Optional[Decimal] = Field(None, decimal_places=2)
     is_active: Optional[bool] = None
-    metadata: Optional[Dict[str, Any]] = None
+    product_metadata: Optional[Dict[str, Any]] = None
 
 
 class ProductResponse(ProductBase):
@@ -224,7 +229,7 @@ class ProductCatalogItem(BaseModel):
     price_clp: Decimal
     free_limit: int
     is_active: bool
-    metadata: Optional[Dict[str, Any]]
+    product_metadata: Optional[Dict[str, Any]]
     platforms: List[PlatformProductResponse] = []
 
     class Config:

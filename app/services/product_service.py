@@ -183,7 +183,7 @@ class ProductService:
                 "price_clp": float(product.price_clp),
                 "free_limit": product.free_limit,
                 "is_active": product.is_active,
-                "metadata": product.product_metadata,
+                "product_metadata": product.product_metadata,
                 "platforms": [
                     {
                         "id": pp.id,
