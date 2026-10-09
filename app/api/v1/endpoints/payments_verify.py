@@ -574,6 +574,29 @@ async def create_mercadopago_preference(
             ),
         )
 
+    # Evitar acumular transacciones PENDING duplicadas cuando el usuario
+    # reintenta "Pagar" varias veces para el mismo producto (ej. tras un
+    # error de Mercado Pago o un checkout abandonado): las preferencias
+    # PENDING anteriores de Mercado Pago para este usuario+producto se
+    # marcan EXPIRED (superseded) antes de crear la nueva, para que "Mis
+    # Pagos" no acumule filas duplicadas del mismo intento de compra. Esto
+    # no afecta el webhook/sync existentes para la preferencia nueva (siguen
+    # matcheando por external_reference "{user_id}_{sku}", que no cambia).
+    stale_pending = (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == current_user.id,
+            Transaction.product_id == product.id,
+            Transaction.status == TransactionStatus.PENDING,
+        )
+        .all()
+    )
+    for stale_tx in stale_pending:
+        if isinstance(stale_tx.device_info, dict) and stale_tx.device_info.get("payment_method") == "mercadopago":
+            stale_tx.status = TransactionStatus.EXPIRED
+    if stale_pending:
+        db.commit()
+
     try:
         sdk = mercadopago.SDK(settings.MERCADO_PAGO_ACCESS_TOKEN)
 
