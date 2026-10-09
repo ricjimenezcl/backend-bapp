@@ -13,10 +13,10 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import get_db_async
+from app.core.database import get_db_async, AsyncSessionLocal
 from app.models.user import User, UserProfile
 from app.models.provider import Provider
-from app.models.chat import ChatConversation as Conversation  # Import with alias
+from app.models.chat import ChatConversation as Conversation, ChatMessage  # Import with alias
 from app.services.chat_service import ChatService
 from app.services.content_filter import ContentFilterService
 from app.services.premium_service import PremiumService
@@ -521,19 +521,44 @@ async def send_message(
             except Exception as e:
                 logger.warning(f"WS notification failed for user {recipient_user_id}: {e}")
 
-        # Dispatch notification in background (SMS/WhatsApp, no-op si ya está en línea)
+        # Dispatch notification en background (persiste Notification en BD +
+        # SMS/WhatsApp, no-op si ya está en línea).
+        # IMPORTANTE: NO reutilizar `db` aquí. BackgroundTasks corre DESPUES de
+        # que FastAPI cierra la sesión de la dependencia (get_db_async hace
+        # `finally: await session.close()` al terminar el request), por lo que
+        # usar `db` revienta en silencio (el except Exception la traga) y la
+        # notificación NUNCA se persiste ni se envia SMS/WhatsApp. Se abre una
+        # sesión nueva e independiente, igual que en workers/notification_event_handler.py.
         if recipient:
+            sender_user_id = current_user.id
+            new_message_id = message.id
+
             async def send_notification():
                 try:
-                    dispatcher = NotificationDispatcher(db)
-                    await dispatcher.dispatch_chat_message(
-                        message=message,
-                        recipient=recipient,
-                        sender=current_user,
-                        conversation=conversation
-                    )
+                    async with AsyncSessionLocal() as bg_db:
+                        bg_recipient = (await bg_db.execute(
+                            select(User).where(User.id == recipient_user_id)
+                        )).scalar_one_or_none()
+                        bg_sender = (await bg_db.execute(
+                            select(User).where(User.id == sender_user_id)
+                        )).scalar_one_or_none()
+                        bg_conversation = (await bg_db.execute(
+                            select(Conversation).where(Conversation.id == conversation_id)
+                        )).scalar_one_or_none()
+                        bg_message = (await bg_db.execute(
+                            select(ChatMessage).where(ChatMessage.id == new_message_id)
+                        )).scalar_one_or_none()
+
+                        if bg_recipient and bg_sender and bg_conversation and bg_message:
+                            dispatcher = NotificationDispatcher(bg_db)
+                            await dispatcher.dispatch_chat_message(
+                                message=bg_message,
+                                recipient=bg_recipient,
+                                sender=bg_sender,
+                                conversation=bg_conversation
+                            )
                 except Exception:
-                    pass
+                    logger.exception("Background chat notification dispatch failed")
             background_tasks.add_task(send_notification)
         
         # Manual conversion to avoid serialization issues

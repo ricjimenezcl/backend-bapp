@@ -752,13 +752,13 @@ def _plan_user_display_name(user: User) -> str:
     return user.email
 
 
-@router.post("/transbank/internal/notify-plan-events", include_in_schema=False)
-async def notify_plan_events(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Endpoint interno protegido por secreto compartido, pensado para ser
-    invocado por un cron (Render Cron Job / cron-job.org) 1 vez al día.
+async def run_plan_notifications_check(db: Session) -> dict:
+    """Lógica de los 3 eventos de ciclo de vida de un plan (activación, aviso
+    de renovación, expiración). Extraída a función reutilizable para poder
+    invocarla tanto desde el endpoint HTTP protegido (`/transbank/internal/notify-plan-events`,
+    para cron externos como Render Cron Job / cron-job.org) como desde el
+    cron interno en `main.py` (asyncio, arranca con la app, no depende de
+    configuración externa).
 
     Recorre `transactions` (independiente de la pasarela de pago: Transbank,
     Mercado Pago, Google Play, Apple IAP) y envía notificación in-app (push
@@ -771,11 +771,6 @@ async def notify_plan_events(
     Cada evento se marca con su propia columna `*_notified_at`/`*_sent_at`
     en `transactions` para evitar reenvíos duplicados en corridas sucesivas.
     """
-    cron_secret = settings.CRON_SECRET
-    provided = request.headers.get("X-Cron-Secret")
-    if not cron_secret or provided != cron_secret:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     from app.models.notification import Notification, NotificationType
     from app.models.product import Product
     from app.services.email_service import email_service
@@ -940,3 +935,24 @@ async def notify_plan_events(
             result["expired"]["failed"] += 1
 
     return result
+
+
+@router.post("/transbank/internal/notify-plan-events", include_in_schema=False)
+async def notify_plan_events(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Endpoint interno protegido por secreto compartido, pensado para ser
+    invocado por un cron externo (Render Cron Job / cron-job.org) si se
+    prefiere esa vía. NOTA: desde este cambio, la app TAMBIEN corre este
+    mismo chequeo internamente cada 6 horas (ver `_plan_notifications_cron`
+    en `main.py`), por lo que este endpoint ya no es el único disparador:
+    sirve como respaldo/ejecución manual bajo demanda.
+    """
+    cron_secret = settings.CRON_SECRET
+    provided = request.headers.get("X-Cron-Secret")
+    if not cron_secret or provided != cron_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return await run_plan_notifications_check(db)
+

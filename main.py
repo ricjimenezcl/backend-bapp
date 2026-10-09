@@ -498,6 +498,33 @@ async def lifespan(app: FastAPI):
     _auto_complete_task = _asyncio.create_task(_booking_maintenance_cron())
     _startup_logger.info("Booking maintenance cron started (every 1 hour)")
 
+    # ── Cron: notificaciones de ciclo de vida de plan (activación, aviso de
+    # vencimiento, expiración) — cada 6 horas ────────────────────────────────
+    # Antes este chequeo SOLO se disparaba via un endpoint HTTP protegido
+    # (`/transbank/internal/notify-plan-events`) pensado para ser invocado por
+    # un cron EXTERNO (Render Cron Job / cron-job.org). Como ese cron externo
+    # nunca se configuró, los avisos de "tu plan vence pronto"/"tu plan venció"
+    # nunca se enviaban. Se corre tambien internamente, igual que el cron de
+    # reservas de arriba, para que funcione sin depender de config externa.
+    async def _plan_notifications_cron() -> None:
+        from app.core.database import get_db
+        from app.api.v1.endpoints.payments_transbank import run_plan_notifications_check
+
+        logger = _startup_logger.manager.getLogger("bapp.plan_notifications_cron")
+
+        while True:
+            await _asyncio.sleep(6 * 3600)  # cada 6 horas
+            logger.info("[CRON] Running plan notifications check...")
+            try:
+                for db in get_db():
+                    result = await run_plan_notifications_check(db)
+                    logger.info(f"[CRON] Plan notifications check complete: {result}")
+            except Exception:
+                logger.exception("[CRON] ❌ Plan notifications check error")
+
+    _plan_notifications_task = _asyncio.create_task(_plan_notifications_cron())
+    _startup_logger.info("Plan notifications cron started (every 6 hours)")
+
     try:
         yield
     finally:
@@ -509,6 +536,14 @@ async def lifespan(app: FastAPI):
             _auto_complete_task.cancel()
             await _asyncio.gather(_auto_complete_task, return_exceptions=True)
             _startup_logger.info("Booking maintenance cron cancelled")
+        except Exception:
+            pass
+
+        # Cancelar tarea de notificaciones de plan
+        try:
+            _plan_notifications_task.cancel()
+            await _asyncio.gather(_plan_notifications_task, return_exceptions=True)
+            _startup_logger.info("Plan notifications cron cancelled")
         except Exception:
             pass
 
