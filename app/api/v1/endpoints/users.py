@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update
+from sqlalchemy import update, delete, select
 from datetime import datetime
 from app.core.database import get_db_async
 from app.core.redis import get_counter
 from app.dependencies import get_current_active_user
 from app.models.user import User, UserProfile
 from app.models.provider import Provider
+from app.models.document import UserDocument, ProviderVerification
 from app.schemas.user import UserDetailResponse, UserProfileUpdate
 from app.services.client_service import ClientService
 from pydantic import BaseModel
@@ -179,3 +180,95 @@ async def change_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al cambiar contraseña: {str(e)}"
         )
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """
+    Elimina la cuenta del usuario autenticado (requerido por Google Play /
+    App Store: eliminación de cuenta disponible dentro de la app).
+
+    No se borra físicamente el registro de `users` por integridad
+    referencial (reservas, transacciones y mensajes de chat de la otra
+    parte deben conservarse). En su lugar:
+      - Se anonimizan todos los datos personales identificables (nombre,
+        email, teléfono, foto, RUN, bio, tokens OAuth).
+      - Se eliminan físicamente los documentos de verificación de identidad
+        (selfie, cédula) almacenados en `user_documents`/`provider_verification`.
+      - La cuenta pasa a estado DELETED, lo que bloquea el login de forma
+        inmediata (ver `get_current_active_user`).
+
+    Reservas, transacciones y mensajes de chat se conservan (asociados a la
+    cuenta ya anonimizada) por obligaciones legales/contables y para no
+    romper el historial de la otra parte (proveedor/cliente).
+    """
+    anon_email = f"deleted_user_{current_user.id}@deleted.bappsearch.com"
+
+    try:
+        await db.execute(
+            update(User).where(User.id == current_user.id).values(
+                email=anon_email,
+                password=None,
+                status="DELETED",
+                deleted_at=datetime.utcnow(),
+                oauth_provider=None,
+                oauth_id=None,
+                oauth_avatar_url=None,
+                reset_token=None,
+                reset_token_expiration=None,
+                email_verification_token=None,
+                email_verification_expiration=None,
+            )
+        )
+
+        if current_user.role == "CLIENT":
+            await db.execute(
+                update(UserProfile).where(UserProfile.user_id == current_user.id).values(
+                    full_name="Usuario eliminado",
+                    phone=None,
+                    avatar=None,
+                    bio=None,
+                )
+            )
+        elif current_user.role == "PROVIDER":
+            provider_id = (
+                await db.execute(
+                    select(Provider.id).where(Provider.user_id == current_user.id)
+                )
+            ).scalar_one_or_none()
+
+            await db.execute(
+                update(Provider).where(Provider.user_id == current_user.id).values(
+                    full_name="Usuario eliminado",
+                    phone=None,
+                    avatar=None,
+                    bio=None,
+                    run=None,
+                    identity_document_url=None,
+                    selfie_url=None,
+                )
+            )
+
+            if provider_id is not None:
+                await db.execute(
+                    delete(ProviderVerification).where(ProviderVerification.provider_id == provider_id)
+                )
+
+        # Borrado físico de documentos de identidad/selfies (dato sensible,
+        # no solo anonimización)
+        await db.execute(
+            delete(UserDocument).where(UserDocument.user_id == current_user.id)
+        )
+
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al eliminar la cuenta: {str(e)}"
+        )
+
+    return None

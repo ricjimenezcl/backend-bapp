@@ -11,10 +11,13 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=True)
     role = Column(Enum("CLIENT", "PROVIDER", "ADMIN", name="user_role"), nullable=False)
-    status = Column(Enum("PENDING", "ACTIVE", "SUSPENDED", "REJECTED", name="user_status"), default="PENDING")
+    status = Column(Enum("PENDING", "ACTIVE", "SUSPENDED", "REJECTED", "DELETED", name="user_status"), default="PENDING")
     email_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    # Eliminación de cuenta (requerido por Google Play / App Store)
+    deleted_at = Column(DateTime, nullable=True)
 
     # Recuperación de contraseña
     reset_token = Column(String(128), nullable=True)
