@@ -253,6 +253,13 @@ class ServiceProviderWithCategoryResponse(BaseModel):
     portfolio_images: Optional[List[str]] = None
     created_at: datetime
     service_category: Optional[ServiceCategoryResponse] = None
+    # Columnas planas devueltas por GeolocationService (_SELECT_COLS: sc.name AS
+    # service_category_name, sc.icon AS service_icon). Sin estos campos, Pydantic
+    # descartaba silenciosamente el nombre de la categoría en /providers/nearby*,
+    # causando que el frontend (web y mobile) cayera al fallback 'GENERAL' al
+    # crear una reserva desde resultados de búsqueda cercana.
+    service_category_name: Optional[str] = None
+    service_icon: Optional[str] = None
     full_name: Optional[str] = Field(None, description="Nombre del proveedor (opcional)")
     distance: Optional[float] = Field(None, ge=0, description="Distancia en km (opcional)")
 
