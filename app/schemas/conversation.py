@@ -115,8 +115,8 @@ class MessageResponse(BaseModel):
     attachment_size: Optional[int]
     attachment_mimetype: Optional[str]
     
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     # Include message statuses per user
     message_status: List[MessageStatusSchema] = []
@@ -186,8 +186,8 @@ class ConversationResponse(ConversationBase):
     last_message_preview: Optional[str]
     is_archived: bool
     archived_at: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     # Included data
     participants: List[ConversationParticipantResponse] = []
@@ -220,7 +220,7 @@ class ConversationInvitationResponse(BaseModel):
     status: InvitationStatus
     accepted_at: Optional[datetime]
     declined_at: Optional[datetime]
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -228,7 +228,7 @@ class ConversationInvitationResponse(BaseModel):
 
 class InvitationAction(BaseModel):
     """Accept/decline invitation"""
-    action: str = Field(..., regex="^(accept|decline)$")
+    action: str = Field(..., pattern="^(accept|decline)$")
 
 
 # ========== Chat List Schemas ==========

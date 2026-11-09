@@ -18,8 +18,8 @@ router = APIRouter()
 
 @router.get("/catalog", response_model=ProductCatalogResponse)
 def get_product_catalog(
-    platform: Optional[str] = Query(None, regex="^(google_play|apple_iap|web)$"),
-    target_role: Optional[str] = Query(None, regex="^(CLIENT|PROVIDER|ALL)$"),
+    platform: Optional[str] = Query(None, pattern="^(google_play|apple_iap|web)$"),
+    target_role: Optional[str] = Query(None, pattern="^(CLIENT|PROVIDER|ALL)$"),
     db: Session = Depends(get_db)
 ):
     """
@@ -95,7 +95,7 @@ def get_product_by_sku(
 
 @router.get("", response_model=List[ProductResponse])
 def get_products(
-    target_role: Optional[str] = Query(None, regex="^(CLIENT|PROVIDER|ALL)$"),
+    target_role: Optional[str] = Query(None, pattern="^(CLIENT|PROVIDER|ALL)$"),
     include_inactive: bool = Query(False),
     db: Session = Depends(get_db)
 ):
