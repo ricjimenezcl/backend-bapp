@@ -11,7 +11,7 @@ class NotificationSchema(BaseModel):
     related_entity_type: Optional[str] = None
     related_entity_id: Optional[int] = None
     is_read: bool
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

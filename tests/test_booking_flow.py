@@ -23,6 +23,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.booking import Booking, BookingStatus
 from app.services.booking_service import BookingService
+from app.schemas.notification import NotificationSchema
+from app.schemas.chat import ConversationResponse
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,6 +214,38 @@ class TestRejectBooking:
                     await svc.reject_booking_with_notifications(
                         booking_id=1, provider_id=20
                     )
+
+
+def test_notification_schema_allows_none_created_at():
+    """Si el backend devuelve created_at nulo, la validación no debe romper la API."""
+    payload = {
+        "id": 1,
+        "type": "message",
+        "title": "Hola",
+        "content": "Mensaje",
+        "is_read": False,
+        "created_at": None,
+    }
+
+    validated = NotificationSchema.model_validate(payload)
+
+    assert validated.created_at is None
+
+
+def test_conversation_response_allows_none_created_at():
+    """Las conversaciones también deben tolerar fechas nulas de compatibilidad."""
+    payload = {
+        "id": 1,
+        "client_id": 10,
+        "provider_id": 20,
+        "started_at": "2025-01-01T00:00:00",
+        "created_at": None,
+        "updated_at": "2025-01-01T00:00:00",
+    }
+
+    validated = ConversationResponse.model_validate(payload)
+
+    assert validated.created_at is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

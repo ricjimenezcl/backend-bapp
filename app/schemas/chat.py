@@ -26,8 +26,8 @@ class MessageResponse(BaseModel):
     sender_id: int
     message_content: str
     is_read: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     sender: Optional[UserBasicResponse] = None
 
     class Config:
@@ -47,10 +47,10 @@ class ConversationResponse(BaseModel):
     id: int
     client_id: int
     provider_id: int
-    started_at: datetime
+    started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     # Enriched fields for UX
     other_participant_id: Optional[int] = None
@@ -68,10 +68,10 @@ class ConversationDetailResponse(BaseModel):
     id: int
     client_id: int
     provider_id: int
-    started_at: datetime
+    started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     client: Optional[UserBasicResponse] = None
     provider: Optional[UserBasicResponse] = None
     messages: List[MessageResponse] = []
@@ -103,8 +103,8 @@ class NotificationResponse(BaseModel):
     related_entity_type: Optional[str] = None
     related_entity_id: Optional[int] = None
     is_read: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
