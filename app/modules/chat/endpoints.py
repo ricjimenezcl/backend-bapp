@@ -5,8 +5,10 @@ Chat Endpoints - REST API for chat operations
 
 import logging
 import json
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_async
@@ -24,6 +26,14 @@ from app.schemas.conversation import (
 from app.infra.redis import redis_client
 
 logger = logging.getLogger(__name__)
+
+
+class ConversationListEnvelope(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: List[ConversationListResponse]
+
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -76,41 +86,39 @@ async def create_group_conversation(
         )
 
 
-@router.get("/conversations", response_model=List[ConversationListResponse])
+@router.get("/conversations", response_model=ConversationListEnvelope)
 async def list_conversations(
     limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    skip: int = Query(0, ge=0),
+    offset: Optional[int] = Query(default=None, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_async)
 ):
     """
     Get all conversations for current user (cached short-term in Redis)
+    Accepts both `skip` and legacy `offset` so the web and mobile clients stay compatible.
     """
-    cache_key = f"chat:conversations:{current_user.id}:{offset}:{limit}"
+    effective_skip = offset if offset is not None else skip
+    cache_key = f"chat:conversations:{current_user.id}:{effective_skip}:{limit}"
     try:
-        # Try cache
         try:
             cached = await redis_client.get(cache_key)
             if cached:
                 return json.loads(cached)
         except Exception:
-            # Redis must be best-effort — ignore on failure
             logger.debug("Redis cache read failed for conversations; falling back to DB")
 
         service = ChatService(db)
-        conversations, total = await service.get_user_conversations(current_user.id, limit, offset)
+        conversations, total = await service.get_user_conversations(current_user.id, limit, effective_skip)
 
-        # Map to plain serializable dicts matching ConversationListResponse
         payload = []
         for c in conversations:
-            # Try read unread count from Redis first
             unread_key = f"chat:unread:{current_user.id}:{c.id}"
             try:
                 cached_unread = await redis_client.get(unread_key)
                 if cached_unread is not None:
                     unread_count = int(cached_unread)
                 else:
-                    # Fallback: count unread MessageStatus for this conversation
                     from app.models.conversation import MessageStatus, Message
                     count_stmt = select(func.count(MessageStatus.id)).join(Message).where(
                         MessageStatus.user_id == current_user.id,
@@ -119,13 +127,11 @@ async def list_conversations(
                     )
                     cnt_res = await db.execute(count_stmt)
                     unread_count = cnt_res.scalar() or 0
-                    # cache the unread count for a short time
                     try:
                         await redis_client.set(unread_key, str(unread_count), ex=60)
                     except Exception:
                         pass
             except Exception:
-                # If Redis fails, fall back to DB count
                 from app.models.conversation import MessageStatus, Message
                 count_stmt = select(func.count(MessageStatus.id)).join(Message).where(
                     MessageStatus.user_id == current_user.id,
@@ -149,14 +155,20 @@ async def list_conversations(
                 "other_participant_avatar": None
             })
 
-        # Cache short-term (best-effort)
+        response = {
+            "total": total,
+            "skip": effective_skip,
+            "limit": limit,
+            "items": payload,
+        }
+
         try:
-            await redis_client.set(cache_key, json.dumps(payload, default=str), ex=10)
+            await redis_client.set(cache_key, json.dumps(response, default=str), ex=10)
         except Exception:
             logger.debug("Redis cache write failed for conversations; continuing")
 
-        return payload
-    
+        return response
+
     except Exception as e:
         logger.error(f"Error listing conversations: {str(e)}")
         raise HTTPException(
