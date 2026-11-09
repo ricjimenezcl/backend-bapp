@@ -78,8 +78,67 @@ async def create_booking(
 
 
 # ============================================================================
-# OBTENER RESERVAS POR CLIENTE (DEBE IR ANTES DE /{booking_id})
+# ESTADÍSTICAS POR CLIENTE (DEBE IR ANTES DE /client/{client_id})
 # ============================================================================
+
+@router.get("/client/stats")
+async def get_client_bookings_stats(
+    current_user: User = Depends(get_current_user),
+    booking_service: BookingService = Depends(get_booking_service)
+):
+    """📊 Estadísticas de reservas del cliente autenticado."""
+    if current_user.role != "CLIENT":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los clientes pueden consultar sus estadísticas"
+        )
+
+    user_id = int(current_user.id) if isinstance(current_user.id, str) else current_user.id
+    bookings = await booking_service.get_bookings_for_client(user_id)
+
+    by_status = {
+        "PENDING": 0,
+        "APPROVED": 0,
+        "CONFIRMED": 0,
+        "IN_PROGRESS": 0,
+        "COMPLETED": 0,
+        "CANCELLED": 0,
+        "REJECTED": 0,
+    }
+
+    for booking in bookings:
+        status = (booking.status or "").upper()
+        if status in by_status:
+            by_status[status] += 1
+
+    total_revenue = 0.0
+    for booking in bookings:
+        status = (booking.status or "").upper()
+        if status in {"APPROVED", "CONFIRMED", "IN_PROGRESS", "COMPLETED"}:
+            total_revenue += float(booking.total_price or 0)
+
+    stats = {
+        "total": len(bookings),
+        "pending": by_status["PENDING"],
+        "approved": by_status["APPROVED"] + by_status["CONFIRMED"],
+        "confirmed": by_status["CONFIRMED"],
+        "in_progress": by_status["IN_PROGRESS"],
+        "completed": by_status["COMPLETED"],
+        "cancelled": by_status["CANCELLED"] + by_status["REJECTED"],
+        "rejected": by_status["REJECTED"],
+        "revenue_total": round(total_revenue, 2),
+        "by_status": {
+            "PENDING": by_status["PENDING"],
+            "APPROVED": by_status["APPROVED"],
+            "CONFIRMED": by_status["CONFIRMED"],
+            "IN_PROGRESS": by_status["IN_PROGRESS"],
+            "COMPLETED": by_status["COMPLETED"],
+            "CANCELLED": by_status["CANCELLED"],
+            "REJECTED": by_status["REJECTED"],
+        },
+    }
+    return stats
+
 
 @router.get("/client/{client_id}", response_model=BookingListResponse)
 async def get_client_bookings(

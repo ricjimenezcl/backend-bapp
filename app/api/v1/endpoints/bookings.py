@@ -21,6 +21,42 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+@router.get("/client/stats")
+async def get_client_bookings_stats(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db_async)
+):
+    """Estadísticas de reservas del cliente autenticado."""
+    if current_user.role != "CLIENT":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only clients can access this endpoint")
+
+    from app.services.booking_service import BookingService
+    booking_service = BookingService(db)
+    bookings = await booking_service.get_bookings_for_client(current_user.id)
+
+    by_status = {"PENDING": 0, "APPROVED": 0, "CONFIRMED": 0, "IN_PROGRESS": 0, "COMPLETED": 0, "CANCELLED": 0, "REJECTED": 0}
+    total_revenue = 0.0
+    for booking in bookings:
+        status = (booking.status or "").upper()
+        if status in by_status:
+            by_status[status] += 1
+        if status in {"APPROVED", "CONFIRMED", "IN_PROGRESS", "COMPLETED"}:
+            total_revenue += float(booking.total_price or 0)
+
+    return {
+        "total": len(bookings),
+        "pending": by_status["PENDING"],
+        "approved": by_status["APPROVED"] + by_status["CONFIRMED"],
+        "confirmed": by_status["CONFIRMED"],
+        "in_progress": by_status["IN_PROGRESS"],
+        "completed": by_status["COMPLETED"],
+        "cancelled": by_status["CANCELLED"] + by_status["REJECTED"],
+        "rejected": by_status["REJECTED"],
+        "revenue_total": round(total_revenue, 2),
+        "by_status": by_status,
+    }
+
+
 @router.get("/client/{client_id}", response_model=List[BookingResponse])
 async def get_client_bookings(
     client_id: int,

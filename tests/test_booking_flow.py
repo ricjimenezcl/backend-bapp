@@ -20,8 +20,10 @@ import pytest
 import pytest_asyncio
 from datetime import date, time, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from fastapi.testclient import TestClient
 
 from app.models.booking import Booking, BookingStatus
+from main import app
 from app.services.booking_service import BookingService
 from app.schemas.notification import NotificationSchema
 from app.schemas.chat import ConversationResponse
@@ -70,6 +72,30 @@ def _mock_email_service():
     svc.send_booking_completed_email = AsyncMock()
     svc.send_booking_expired_email = AsyncMock()
     return svc
+
+
+class TestBookingClientStatsRoute:
+    """Debe aceptar /api/v1/bookings/client/stats sin intentar parsear 'stats' como client_id."""
+
+    @pytest.mark.asyncio
+    async def test_stats_route_is_not_misread_as_client_id(self):
+        from app.dependencies import get_current_user
+
+        async def fake_current_user():
+            user = MagicMock()
+            user.id = 57
+            user.role = "CLIENT"
+            return user
+
+        app.dependency_overrides[get_current_user] = fake_current_user
+        app.dependency_overrides["get_db_async"] = lambda: None
+
+        client = TestClient(app)
+        try:
+            response = client.get("/api/v1/bookings/client/stats")
+            assert response.status_code != 422
+        finally:
+            app.dependency_overrides.clear()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
